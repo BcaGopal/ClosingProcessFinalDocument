@@ -1,0 +1,85 @@
+
+--start costcenterName for the newyear-
+SELECT count(*)+1 FROM Web.JobOrderHeaders H WITH (Nolock) WHERE H.SiteId=30 AND H.DivisionId=6 AND H.DocTypeId=458 AND H.DocDate BETWEEN '1/Apr/19' AND '1/Apr/19'
+------------------ Update 27Mar19-1Apr19 to 4Apr19
+
+UPDATE Web.JobOrderHeaders
+SET Web.JobOrderHeaders.DueDate= V1.New_Duedate
+FROM 
+(
+SELECT H.JobOrderHeaderId,H.DueDate,convert(DATETIME,'4/Apr/19') AS New_Duedate
+FROM Web.JobOrderHeaders H WITH (Nolock) 
+WHERE 1=1 AND  H.DueDate BETWEEN '27/Mar/19' AND '1/Apr/19'
+AND H.DocTypeId IN (455, 458, 637, 638)
+) AS V1 WHERE Web.JobOrderHeaders.JobOrderHeaderId = V1.JobOrderHeaderId	
+
+
+
+----------------barcode 
+
+
+SELECT * FROM web.JobOrderLines WHERE JobOrderHeaderId=50095684
+SELECT * FROM Web.JobOrderLineCharges WHERE LineTableId=51164945
+SELECT * FROM Web.JobOrderLineStatus WHERE JobOrderLineId=51164945
+
+--DELETE FROM Web.JobOrderLineStatus
+--WHERE JobOrderLineId = 51164945
+--GO
+
+--DELETE FROM Web.JobOrderLineCharges
+--WHERE Id = 52716484
+--GO
+--
+--DELETE FROM Web.JobOrderLineCharges
+--WHERE Id = 52716485
+--GO
+
+--DELETE FROM Web.JobOrderLines
+--WHERE JobOrderLineId = 51164945
+--GO
+
+SELECT * FROM Web.JobOrderBoms WHERE JobOrderHeaderId=50095684
+
+
+
+
+
+
+
+------------------------------
+
+
+--INSERT INTO Web.JobOrderLines (JobOrderHeaderId, ProductUidId, ProductId, ProdOrderLineId, Dimension1Id, Dimension2Id, Qty, DueDate, FromProcessId, DealUnitId, DealQty, Rate, Amount, Remark, CreatedBy, ModifiedBy, CreatedDate, ModifiedDate, OMSId, LotNo, NonCountedQty, LossQty, Specification, UnitConversionMultiplier, StockProcessId, StockId, ProductUidHeaderId, Sr, LockReason, CreatedMode, ProductUidLastTransactionDocId, ProductUidLastTransactionDocNo, ProductUidLastTransactionDocTypeId, ProductUidLastTransactionDocDate, ProductUidLastTransactionPersonId, ProductUidCurrentGodownId, ProductUidCurrentProcessId, ProductUidStatus, UnitId, Dimension3Id, Dimension4Id, StockInId, SalesTaxGroupProductId, DiscountPer, DiscountAmt, DiscountAmount)
+--SELECT 50095684 AS JobOrderHeaderId, L.ProductUidId, L.ProductId, L.ProdOrderLineId, L.Dimension1Id, L.Dimension2Id, L.Qty, L.DueDate,
+-- L.FromProcessId, L.DealUnitId, L.DealQty, L.Rate, L.Amount, L.Remark, L.CreatedBy, L.ModifiedBy,
+--  L.CreatedDate, L.ModifiedDate, L.OMSId, L.LotNo, L.NonCountedQty, L.LossQty, L.Specification,
+--   L.UnitConversionMultiplier, L.StockProcessId, L.StockId, L.ProductUidHeaderId, L.Sr, L.LockReason, L.CreatedMode, L.ProductUidLastTransactionDocId,
+--    L.ProductUidLastTransactionDocNo, L.ProductUidLastTransactionDocTypeId, L.ProductUidLastTransactionDocDate, L.ProductUidLastTransactionPersonId, 
+--    L.ProductUidCurrentGodownId,L. ProductUidCurrentProcessId, L.ProductUidStatus, L.UnitId, L.Dimension3Id, L.Dimension4Id, 
+--    L.StockInId, L.SalesTaxGroupProductId, L.DiscountPer, L.DiscountAmt, L.DiscountAmount
+-- FROM Web.JobOrderLines L
+--LEFT JOIN Web.JobOrderCancelLines JOLC WITH (Nolock) ON L.JobOrderLineId=JOLC.JobOrderLineId
+--WHERE L.JobOrderHeaderId=50089062 AND JOLC.JobOrderLineId IS NOT NULL
+
+--50095684 FOR THEN Line
+
+SELECT * FROM Web.JobOrderLines WHERE JobOrderHeaderId=50095684
+
+
+--INSERT INTO Web.JobOrderLineCharges (LineTableId, Sr, ChargeId, AffectCost, ChargeTypeId, CalculateOnId, LedgerAccountDrId, LedgerAccountCrId, CostCenterId, RateType, IncludedInBase, ParentChargeId, Rate, Amount, IsVisible, OMSId, HeaderTableId, PersonId, ContraLedgerAccountId, DealQty, IncludedCharges, IncludedChargesCalculation, AddDeduct, IsVisibleLedgerAccountDr, IsVisibleLedgerAccountCr, filterLedgerAccountGroupsDrId, filterLedgerAccountGroupsCrId)
+--SELECT  (CASE WHEN LineTableId=51090897 THEN  51170882
+--             WHEN LineTableId=51090898 THEN  51170883 ELSE 51170884 END) AS   LineTableId, Sr, ChargeId, AffectCost, ChargeTypeId, CalculateOnId, LedgerAccountDrId, LedgerAccountCrId, CostCenterId, RateType, IncludedInBase, ParentChargeId, Rate, Amount, IsVisible, OMSId, HeaderTableId,1326 AS  PersonId, ContraLedgerAccountId, DealQty, IncludedCharges, IncludedChargesCalculation, AddDeduct, IsVisibleLedgerAccountDr, IsVisibleLedgerAccountCr, filterLedgerAccountGroupsDrId, filterLedgerAccountGroupsCrId
+-- FROM Web.JobOrderLineCharges WHERE LineTableId IN (51090897, 51090898, 51090899)
+
+
+
+--50095684 FOR THEN Line
+
+--INSERT INTO Web.JobOrderLineStatus (JobOrderLineId, CancelQty, CancelDate, AmendmentQty, AmendmentDate, ReceiveQty, ReceiveDate, ReturnQty, ReturnDate, InvoiceQty, InvoiceDate, PaymentQty, PaymentDate, CancelDealQty, AmendmentDealQty, ReceiveDealQty, InvoiceDealQty, ReturnDealQty, ExcessJobReceiveReviewBy, RateAmendmentRate, RateAmendmentDate)
+--SELECT 
+--(CASE WHEN JobOrderLineId=51090897 THEN  51170882
+--      WHEN JobOrderLineId=51090898 THEN  51170883 ELSE 51170884 END) AS   JobOrderLineId,
+-- 0 AS CancelQty,NULL AS  CancelDate, AmendmentQty, AmendmentDate, ReceiveQty, ReceiveDate, ReturnQty, ReturnDate, InvoiceQty, InvoiceDate, PaymentQty, PaymentDate,0 AS  CancelDealQty, AmendmentDealQty, ReceiveDealQty, InvoiceDealQty, ReturnDealQty, ExcessJobReceiveReviewBy, RateAmendmentRate, RateAmendmentDate FROM Web.JobOrderLineStatus WHERE JobOrderLineId IN (51090897, 51090898, 51090899)
+
+SELECT * FROM Web.JobOrderBoms WHERE JobOrderHeaderId=50089062 AND JobOrderLineId IN (51090897,51090898,51090899)
+

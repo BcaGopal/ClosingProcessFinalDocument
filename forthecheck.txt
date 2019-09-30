@@ -1,0 +1,294 @@
+--for the TimeIncentive
+DECLARE @CompleteStatus VARCHAR(10)='7'
+DECLARE @AsOnDate VARCHAR(100)='31/Mar/19'
+
+SELECT 
+Max(VMain.SiteId) AS SiteId, Max(VMain.DivisionId) AS DivisionId, Max(VMain.LedgerAccountId) AS LedgerAccountId, 
+Max(Vmain.DocTypeId) AS ReferenceDocTypeId, Vmain.JobOrderHeaderId AS ReferenceDocId,  Max(VMain.CostCenterId) AS CostCenterId, Round(sum(Vmain.Amount),0) AS Amount, 
+Sum(Vmain.Area) AS Area, Max(VMain.TimeIncentiveRate) as TimeIncentiveRate, Max(VMain.DueDate) AS DueDate, Max(VMain.MaxRecDate) AS MaxRecDate,
+Max(VMain.JobWorkerName) AS JobWorkerName, VMain.CostCenterNameMain 
+FROM
+(
+SELECT VOrd.SiteId,VOrd.DivisionId, JJ.GenJobOrderHeaderId, isnull(NCC.CostCenterName,CC.CostCenterName) AS CostCenterName, CC.CostCenterName AS CostCenterNameMain,
+VOrd.JobOrderHeaderId AS JobOrderHeaderId,  isnull(NJ.CostCenterId, VOrd.CostCenterId) AS CostCenterId ,  
+VOrd.DocTypeId, VOrd.DocDate, VOrd.DocNo, VOrd.JobWorkerName AS JobWorkerName, LA.LedgerAccountId AS LedgerAccountId, VOrd.DueDate, VOrd.TimeIncentiveRate AS TimeIncentiveRate,
+isnull(L.Qty,0) + isnull(LS.AmendmentQty,0) - isnull(LS.CancelQty,0) AS Qty, isnull(LS.ReceiveQty,0) - isnull(LS.ReturnQty,0) AS ReceiveQty, LS.ReceiveDate AS MaxRecDate, LS.CancelDate AS MaxCanDate,
+(L.DealQty/ L.Qty) * (isnull(LS.ReceiveQty,0) - isnull(LS.ReturnQty,0))  AS Area,
+round((L.DealQty/ L.Qty) * (isnull(LS.ReceiveQty,0) - isnull(LS.ReturnQty,0)) * VOrd.TimeIncentiveRate,2) AS Amount
+FROM
+(
+SELECT H.JobOrderHeaderId, H.SiteId, H.DivisionId,H.CostCenterId,  H.DocTypeId, H.DocDate, H.DocNo, JW.PersonID,  JW.Name AS JobWorkerName, H.DueDate,
+JOP.Worth AS TimeIncentiveRate
+FROM web.JobOrderHeaders H WITH (Nolock) 
+LEFT JOIN web.JobOrderHeaderStatus HS WITH (Nolock) ON HS.JobOrderHeaderId = H.JobOrderHeaderId 
+LEFT JOIN web.JobOrderPerks JOP WITH (Nolock) ON H.JobOrderHeaderId = JOP.JobOrderHeaderId AND JOP.PerkId = 1
+LEFT JOIN web.People JW WITH (Nolock) ON JW.PersonID = H.JobWorkerId
+LEFT JOIN Web.DocumentTypes D ON H.DocTypeId = D.DocumentTypeId
+WHERE  isnull(JOP.Worth,0) > 0 AND isnull(JW.IsSisterConcern,0) = 0 AND isnull(JW.Nature,'') <> 'Employee'
+AND HS.ReceiveDate <=H.DueDate  AND isnull(HS.CancelDate,H.DueDate )  <=H.DueDate 
+--AND  H.DocTypeId IN (455, 458) 
+AND D.DocumentCategoryId = 343
+AND isnull(HS.IsTimeIncentiveProcessed,0) =0 AND HS.Status =@CompleteStatus 
+--AND HS.ReceiveDate <> H.DocDate 
+AND HS.ReceiveDate <=@AsOnDate
+
+UNION ALL 
+--  For Old Job Order 
+SELECT JJ.GenJobOrderHeaderId AS JobOrderHeaderId, OJ.SiteId, OJ.DivisionId,OJ.CostCenterId,  OJ.DocTypeId, OJ.DocDate, OJ.DocNo, JW.PersonID,  JW.Name AS JobWorkerName, OJ.DueDate,
+JOP.Worth AS TimeIncentiveRate
+FROM web.JobOrderHeaders H WITH (Nolock) 
+LEFT JOIN web.JobOrderHeaderStatus HS WITH (Nolock) ON HS.JobOrderHeaderId = H.JobOrderHeaderId 
+LEFT JOIN web.JobOrderJobOrders JJ WITH (Nolock) ON JJ.JobOrderHeaderId = H.JobOrderHeaderId 
+LEFT JOIN web.JobOrderHeaders OJ ON JJ.GenJobOrderHeaderId = OJ.JobOrderHeaderId 
+LEFT JOIN web.JobOrderPerks JOP WITH (Nolock) ON OJ.JobOrderHeaderId = JOP.JobOrderHeaderId AND JOP.PerkId = 1
+LEFT JOIN web.People JW WITH (Nolock) ON JW.PersonID = OJ.JobWorkerId
+LEFT JOIN Web.DocumentTypes D ON H.DocTypeId = D.DocumentTypeId
+WHERE  isnull(JOP.Worth,0) > 0 AND isnull(JW.IsSisterConcern,0) = 0 AND isnull(JW.Nature,'') <> 'Employee'
+AND HS.ReceiveDate <=H.DueDate  AND isnull(HS.CancelDate,H.DueDate )  <=H.DueDate 
+--AND H.DocTypeId IN (455, 458) 
+AND D.DocumentCategoryId = 343
+AND isnull(HS.IsTimeIncentiveProcessed,0) =0 AND HS.Status =@CompleteStatus
+AND OJ.JobOrderHeaderId IS NOT NULL 
+AND HS.ReceiveDate <=@AsOnDate
+
+) VOrd
+LEFT JOIN web.JobOrderLines L WITH (Nolock) ON L.JobOrderHeaderId = VOrd.JobOrderHeaderId 
+LEFT JOIN web.JobOrderLineStatus LS WITH (Nolock) ON LS.JobOrderLineId = L.JobOrderLineId 
+LEFT JOIN web.CostCenters CC WITH (Nolock) ON CC.CostCenterId = VOrd.CostCenterId 
+LEFT JOIN web.JobOrderJobOrders JJ WITH (Nolock) ON JJ.GenJobOrderHeaderId  = VOrd.JobOrderHeaderId
+LEFT JOIN web.JobOrderHeaders NJ WITH (Nolock) ON NJ.JobOrderHeaderId = JJ.JobOrderHeaderId 
+LEFT JOIN web.CostCenters NCC WITH (Nolock) ON NCC.CostCenterId = NJ.CostCenterId  
+LEFT JOIN web.LedgerAccounts LA ON LA.PersonId = VOrd.PersonId
+WHERE isnull(L.Qty,0) <> 0 
+) VMain
+GROUP BY VMain.JobOrderHeaderId, VMain.CostCenterNameMain
+HAVING Max(VMain.MaxRecDate) <=Max(VMain.DueDate) 
+AND Sum(Vmain.Qty) <= Sum(Vmain.ReceiveQty) 
+
+
+SELECT * FROM Web.CostCenters WHERE CostCenterId IN (537637, 540092, 539414, 540047, 537741, 537259, 537332, 537112, 537611, 537532, 539550, 540072, 537692, 538975, 539524, 539492, 537475, 540101, 540166, 537673, 540097, 540140, 537263, 537474, 537496, 537514, 537674, 537780, 540143, 537610, 540048, 537546, 540121, 538849, 539575, 539567, 537657, 540093, 540181, 537179, 540155, 537269, 537307, 539451, 539537, 540066, 537515, 537560, 539444, 537139, 537481, 537329, 539000, 539190, 537312, 537800, 539564, 537370, 540086, 536701, 540112, 537558, 537799, 539538, 538992, 537700, 540186, 538870, 537319, 537299, 540040, 537591, 537219, 537713, 537296, 537689, 537636, 537777, 537778, 537374, 538886, 537295, 537437, 537584, 537267, 537300, 540084, 540056, 537544, 537304, 539600, 539571, 537594, 537480, 537567, 537372, 538997, 540122, 537559, 540170, 539510, 537522, 537523, 537717, 540088, 540081, 540118, 537434, 537452, 537478, 537832, 540075, 537506, 537714, 537459, 537460, 537516, 539188, 540173, 537596, 537502, 540055, 540044, 538993, 537264, 539010, 539437, 537545, 537510, 537831, 536865, 538995, 538996, 539086, 537656, 538855, 540167, 539507, 539475)
+SELECT * FROM Web.CostCenters WHERE CostCenterId IN (537741, 537259, 537545, 537510, 537831, 536865, 538995, 538996, 539086, 537656, 538855, 537332, 537112, 537502, 538993, 537264, 539010, 537179, 537269, 537307, 537657, 537689, 537636, 537777, 537778, 537374, 538886, 537692, 538975, 537594, 537480, 537567, 537372, 538997, 537559, 537139, 537481, 537329, 539000, 539190, 537312, 537800, 537475, 537515, 537560, 537506, 537714, 537459, 537460, 537516, 539188, 537596, 537295, 537437, 537584, 537267, 537673, 537263, 537474, 537496, 537514, 537674, 537780, 538992, 537700, 538870, 537319, 537370, 536701, 537558, 537799, 537299, 537591, 537219, 537713, 537611, 537532, 537610, 537546, 538849, 537300, 537544, 537304, 537522, 537523, 537717, 537434, 537452, 537478, 537832, 537637)
+---------------
+
+--TimePenalty
+
+DECLARE @AsOnDate VARCHAR(max)='31/Mar/19'
+
+SELECT Max(VMain.SiteId) AS SiteId, Max(VMain.DivisionId) AS DivisionId, Max(VMain.JobWorkerName) AS JobWorkerName,Max(VMain.LedgerAccountId) AS LedgerAccountId,  
+Max(Vmain.DocTypeId) AS ReferenceDocTypeId, Vmain.JobOrderHeaderId AS ReferenceDocId,  Max(VMain.CostCenterId) AS CostCenterId, Round(sum(Vmain.Amount),0) AS Amount, 
+VMain.CostCenterNameMain , Sum(Vmain.BalanceDealQty) AS Area, Max(VMain.TimePenaltyRate) as TimePenaltyRate, Max(VMain.DueDate) AS DueDate, 
+Max(VMain.MaxRecDate) AS MaxRecDate, Max(VMain.MaxCanDate) AS MaxCanDate, Max(VMain.BalanceOnDate) AS BalanceOnDate
+FROM
+(
+
+SELECT VOrd.SiteId, VOrd.DivisionId, JJ.GenJobOrderHeaderId, isnull(NCC.CostCenterName,CC.CostCenterName) AS CostCenterName, CC.CostCenterName AS CostCenterNameMain,
+isnull(NJ.JobOrderHeaderId,VOrd.JobOrderHeaderId) AS JobOrderHeaderId, VOrd.CostCenterId AS CostCenterId , --isnull(NJ.CostCenterId, VOrd.CostCenterId) AS CostCenterId ,  
+VOrd.DocTypeId, VOrd.DocDate, VOrd.DocNo, VOrd.JobWorkerName AS JobWorkerName, LA.LedgerAccountId AS LedgerAccountId, VOrd.MaxRecDate, VOrd.MaxCanDate, 
+VOrd.DueDate, VOrd.TimePenaltyRate AS TimePenaltyRate, VOrd.BalanceQty , VOrd.BalanceDealQty ,round((VOrd.BalanceDealQty) * VOrd.TimePenaltyRate,2) AS Amount,
+VOrd.BalanceOnDate
+FROM
+(
+SELECT VMain.*, JOL.JobOrderLineId, JR.MaxRecDate, JC.MaxCanDate,
+isnull(JOL.Qty,0) - isnull(JR.RecQty,0) - isnull(JC.CancelQty,0) AS BalanceQty,
+isnull(JOL.DealQty,0) - isnull(JR.RecDealQty,0) - isnull(JC.CancelDealQty,0) AS BalanceDealQty
+FROM
+(
+SELECT H.JobOrderHeaderId, H.SiteId, H.DivisionId,  H.CostCenterId,  H.DocTypeId, H.DocDate, H.DocNo, JW.PersonID,  JW.Name AS JobWorkerName, H.DueDate,
+JOP.Worth AS TimePenaltyRate,  H.DueDate +  isnull(JOP.Base,0) + (isnull(HS.TimePenaltyCount,0) * 30 ) AS BalanceOnDate
+FROM web.JobOrderHeaders H WITH (Nolock) 
+LEFT JOIN web.JobOrderHeaderStatus HS WITH (Nolock) ON HS.JobOrderHeaderId = H.JobOrderHeaderId 
+LEFT JOIN web.JobOrderPerks JOP WITH (Nolock) ON H.JobOrderHeaderId = JOP.JobOrderHeaderId AND JOP.PerkId = 2
+LEFT JOIN web.People JW WITH (Nolock) ON JW.PersonID = H.JobWorkerId
+LEFT JOIN Web.DocumentTypes D ON D.DocumentTypeId = H.DocTypeId
+WHERE  isnull(JOP.Worth,0) > 0 AND isnull(JW.IsSisterConcern,0) = 0 
+AND H.ActualDocDate <= H.DueDate 
+--AND  H.DocTypeId = 458 
+AND D.DocumentCategoryId = 343
+AND H.DueDate <= @AsOnDate
+AND isnull(HS.IsTimePenaltyProcessed,0) =0 AND H.DueDate +  isnull(JOP.Base,0) + (isnull(HS.TimePenaltyCount,0) * 30 ) < @AsOnDate
+
+) VMain
+LEFT JOIN web.JobOrderLines JOL ON JOL.JobOrderHeaderId = VMain.JobOrderHeaderId
+LEFT JOIN 
+(
+SELECT JRL.JobOrderLineId, Max(H.DocDate) AS MaxRecDate, sum(JOL.DealQty/ ( CASE WHEN JOL.Qty = 0 THEN 1 ELSE JOL.Qty END )  * JRL.Qty) AS RecDealQty, sum(JRL.Qty) AS RecQty 
+FROM ( SELECT * FROM web.JobReceiveHeaders JRH WITH (Nolock) WHERE JRH.DocTypeId = 448  ) H
+LEFT JOIN WEb.JobReceiveLines JRL WITH (Nolock) ON JRL.JobReceiveHeaderId = H.JobReceiveHeaderId
+LEFT JOIN web.JobOrderLines JOL WITH (Nolock) ON JOL.JobOrderLineId = JRL.JobOrderLineId
+LEFT JOIN web.JobOrderHeaders JOH WITH (Nolock) ON JOH.JobOrderHeaderId = JOL.JobOrderHeaderId 
+LEFT JOIN web.JobOrderHeaderStatus JOHS WITH (Nolock) ON JOHS.JobOrderHeaderId = JOH.JobOrderHeaderId
+LEFT JOIN web.JobOrderPerks JOP WITH (Nolock) ON JOH.JobOrderHeaderId = JOP.JobOrderHeaderId AND JOP.PerkId = 2
+LEFT JOIN web.People JW WITH (Nolock) ON JW.PersonID =JOH.JobWorkerId
+LEFT JOIN web.JobReturnLines RT WITH (Nolock) ON RT.JobReceiveLineId = JRL.JobReceiveLineId
+WHERE  isnull(JOP.Worth,0) > 0 AND isnull(JW.IsSisterConcern,0) = 0 
+AND isnull(JOHS.IsTimePenaltyProcessed,0) =0 AND RT.JobReturnHeaderId IS NULL 
+AND JOH.DueDate + JOP.Base + (isnull(JOHS.TimePenaltyCount,0) * 30 ) >= H.DocDate
+GROUP BY JRL.JobOrderLineId
+) JR ON JR.JobOrderLineId = JOL.JobOrderLineId
+LEFT JOIN 
+(
+SELECT JRL.JobOrderLineId, Max(H.DocDate) AS MaxCanDate, sum(JOL.DealQty/JOL.Qty * JRL.Qty) AS CancelDealQty, sum(JRL.Qty) AS CancelQty 
+FROM ( SELECT * FROM web.JobOrderCancelHeaders JRH WITH (Nolock) WHERE JRH.DocTypeId = 449  ) H
+LEFT JOIN WEb.JobOrderCancelLines JRL WITH (Nolock) ON JRL.JobOrderCancelHeaderId = H.JobOrderCancelHeaderId
+LEFT JOIN web.JobOrderLines JOL WITH (Nolock) ON JOL.JobOrderLineId = JRL.JobOrderLineId
+LEFT JOIN web.JobOrderHeaders JOH WITH (Nolock) ON JOH.JobOrderHeaderId = JOL.JobOrderHeaderId 
+LEFT JOIN web.JobOrderHeaderStatus JOHS WITH (Nolock) ON JOHS.JobOrderHeaderId = JOH.JobOrderHeaderId
+LEFT JOIN web.JobOrderPerks JOP WITH (Nolock) ON JOH.JobOrderHeaderId = JOP.JobOrderHeaderId AND JOP.PerkId = 2
+LEFT JOIN web.People JW WITH (Nolock) ON JW.PersonID =JOH.JobWorkerId
+WHERE  isnull(JOP.Worth,0) > 0 AND isnull(JW.IsSisterConcern,0) = 0 
+AND isnull(JOHS.IsTimePenaltyProcessed,0) =0 
+AND JOH.DueDate + JOP.Base + (isnull(JOHS.TimePenaltyCount,0) * 30 ) >= H.DocDate
+GROUP BY JRL.JobOrderLineId
+) JC ON JC.JobOrderLineId = JOL.JobOrderLineId
+WHERE isnull(JOL.Qty,0) - isnull(JR.RecQty,0) - isnull(JC.CancelQty,0) > 0 
+) VOrd
+LEFT JOIN web.CostCenters CC WITH (Nolock) ON CC.CostCenterId = VOrd.CostCenterId 
+LEFT JOIN web.JobOrderJobOrders JJ WITH (Nolock) ON JJ.GenJobOrderHeaderId  = VOrd.JobOrderHeaderId
+LEFT JOIN web.JobOrderHeaders NJ WITH (Nolock) ON NJ.JobOrderHeaderId = JJ.JobOrderHeaderId 
+LEFT JOIN web.CostCenters NCC WITH (Nolock) ON NCC.CostCenterId = NJ.CostCenterId  
+LEFT JOIN web.LedgerAccounts LA ON LA.PersonId = VOrd.PersonId
+) VMain
+GROUP BY VMain.JobOrderHeaderId, VMain.CostCenterNameMain
+
+
+SELECT * FROM Web.CostCenters WHERE CostCenterId IN (537570, 536915, 534040, 536618, 537585, 534450, 534641, 536791, 536831, 536850, 535303, 536871, 536900, 537007, 537355, 534891, 536909, 536849, 537651, 537423, 536755, 537145, 537019, 536873, 537568, 535032, 536810, 534588, 535074, 536851, 536981, 536884, 536964, 537089, 537652, 536988, 537649, 537248, 537268, 537363, 537620, 537682, 536852, 537012, 536896, 537017, 537143, 537473, 536423, 537444)
+--------
+
+DECLARE @YearStartDate VARCHAR(100)='1/Apr/16'
+DECLARE @CompleteStatus VARCHAR(100)='7'
+DECLARE @AsOnDate VARCHAR(50)='31/Mar/19'
+
+
+
+SELECT Max(Vmain.SiteId) AS SiteId, Max(Vmain.DivisionId) AS DivisionId, Max(VMain.JobWorkerName) AS JobWorkerName,Max(VMain.LedgerAccountId) AS LedgerAccountId,  
+Max(Vmain.DocTypeId) AS ReferenceDocTypeId, Vmain.JobOrderHeaderId AS ReferenceDocId,  Max(VMain.CostCenterId) AS CostCenterId, 
+Round(sum(Vmain.Amount),0) AS Amount, 
+VMain.CostCenterNameMain , Sum(Vmain.BalanceDealQty) AS Area, Max(VMain.SmallChunkRate) as SmallChunkRate, Max(VMain.DueDate) AS DueDate, NULL, NULL 
+FROM
+(
+SELECT JJ.GenJobOrderHeaderId, VOrd.SiteId, VOrd.DivisionId, isnull(NCC.CostCenterName,CC.CostCenterName) AS CostCenterName, CC.CostCenterName AS CostCenterNameMain,
+isnull(NJ.JobOrderHeaderId,VOrd.JobOrderHeaderId) AS JobOrderHeaderId,  isnull(NJ.CostCenterId, VOrd.CostCenterId) AS CostCenterId ,  
+VOrd.DocTypeId, VOrd.DocDate, VOrd.DocNo, VOrd.JobWorkerName AS JobWorkerName, LA.LedgerAccountId AS LedgerAccountId, 
+VOrd.DueDate, VOrd.SmallChunkRate AS SmallChunkRate, VOrd.BalQty AS BalanceQty , VOrd.SmallChunkArea - isnull(VSMC.SMallChunkArea,0) AS BalanceDealQty ,
+round(VOrd.SmallChunkAmount - isnull(VSMC.SMallChunkAmount,0),2) AS Amount
+FROM
+(
+
+SELECT A.JobOrderHeaderId, Max(A.SiteId) AS SiteId, Max(A.DivisionId) AS DivisionId, Max(A.PersonId) AS PersonId, Max(A.DocTypeId) AS DocTypeId, Max(A.DueDate) AS DueDate, Max(A.DocNo) AS DocNo, Max(A.DocDate) AS DocDate, Max(A.JobWorkerName) AS JobWorkerName, Max(A.CostCenterId) AS CostCenterId, Max(A.SmallChunkRate) AS SmallChunkRate,   
+sum(A.BalQty) AS BalQty, sum(A.BalArea) AS BalArea, sum(A.SmallChunkArea) AS SmallChunkArea,sum(A.SmallChunkAmount) AS SmallChunkAmount
+FROM 
+(
+SELECT VMain.*,
+sum(isnull(VMain.RecQty,0)) OVER( PARTITION BY VMain.JobOrderHeaderId ORDER BY VMain.DocDate ) AS RRecQty,
+sum(isnull(VMain.RecArea,0)) OVER( PARTITION BY VMain.JobOrderHeaderId ORDER BY VMain.DocDate ) AS RRecArea,
+VMain.OrderArea - sum(isnull(VMain.RecArea,0)) OVER( PARTITION BY VMain.JobOrderHeaderId ORDER BY VMain.DocDate ) AS BalArea,
+VMain.OrderQty - sum(isnull(VMain.RecQty,0)) OVER( PARTITION BY VMain.JobOrderHeaderId ORDER BY VMain.DocDate ) AS BalQty,
+CASE WHEN VMain.SmallChunkCount <= VMain.Sr THEN  ( VMain.OrderArea - sum(isnull(VMain.RecArea,0)) OVER( PARTITION BY VMain.JobOrderHeaderId ORDER BY VMain.DocDate ))  ELSE  0 END AS SmallChunkArea,
+CASE WHEN VMain.SmallChunkCount <= VMain.Sr THEN  ( VMain.OrderArea - sum(isnull(VMain.RecArea,0)) OVER( PARTITION BY VMain.JobOrderHeaderId ORDER BY VMain.DocDate )) * VMain.SmallChunkRate  ELSE  0 END AS SmallChunkAmount
+FROM
+(
+SELECT Ord.JobOrderHeaderId, VRec.DocDate, Max(SiteId) AS SiteId , Max(DivisionId) AS DivisionId, Max(Ord.OrderDate) AS OrderDate, Max(Ord.CostCenterId) AS CostCenterId, Max(Ord.PersonId) AS PersonId, Max(Ord.DocTypeId) AS DocTypeId, 
+Max(Ord.DocNo) AS DocNo, Max(Ord.JobWorkerName) AS JobWorkerName, Max(Ord.DueDate) AS DueDate, 
+row_number( ) OVER (PARTITION BY Ord.JobOrderHeaderId ORDER BY VRec.DocDate) AS Sr,
+Max(Ord.OrderQty) AS OrderQty, Max(Ord.OrderArea) AS OrderArea, sum(VRec.Qty) AS RecQty,sum(VRec.RecArea) AS RecArea, 
+Max(Ord.Base) AS SmallChunkCount, Max(Ord.Worth) AS SmallChunkRate
+FROM 
+(
+SELECT Max(H.SiteId) SiteId, Max(H.DivisionId) DivisionId, JOH.JobOrderHeaderId AS JobOrderHeaderId, Max(JOH.DocDate) AS OrderDate, Max(JOH.CostCenterId) AS CostCenterId, Max(JOH.JobWorkerId) AS PersonId,Max(JOH.DocTypeId) AS DocTypeId,
+Max(JOH.DocNo) AS DocNo, Max(P.Name) AS JobWorkerName, Max(JOH.DueDate) AS DueDate, 
+sum(L.Qty) AS OrderQty, sum(isnull(L.DealQty,0)) AS OrderArea,
+Max(JOP.Base) AS Base, Max(JOP.Worth) AS Worth
+FROM 
+( 
+SELECT H.SiteId, H.DivisionId, isnull(JJ.GenJobOrderHeaderId,H.JobOrderHeaderId) AS JobOrderHeaderId, IsSmallChunkPenaltyProcessed --JO.Status AS PurjaStatus--, H.* 
+FROM web.JobOrderHeaders H WITH (Nolock) 
+LEFT JOIN web.JobOrderJobOrders JJ WITH (Nolock) ON JJ.JobOrderHeaderId  = H.JobOrderHeaderId 
+LEFT JOIN web.JobOrderHeaderStatus HS WITH (Nolock) ON H.JobOrderHeaderId = HS.JobOrderHeaderId
+LEFT JOIN Web.DocumentTypes D ON H.DocTypeId = D.DocumentTypeId
+--WHERE H.DocTypeId IN (455,458) 
+WHERE D.DocumentCategoryId = 343
+AND isnull(HS.IsSmallChunkPenaltyProcessed,0) =0 
+AND H.DocDate >=@YearStartDate
+AND HS.Status =@CompleteStatus
+AND ( HS.ReceiveDate <= @AsOnDate OR HS.ReceiveDate IS NULL ) 
+AND ( HS.CancelDate <= @AsOnDate OR HS.CancelDate IS NULL )
+) H
+LEFT JOIN web.JobOrderHeaders JOH WITH (Nolock) ON JOH.JobOrderHeaderId = H.JobOrderHeaderId 
+LEFT JOIN web.People P WITH (Nolock)  ON P.PersonId = JOH.JobWorkerId
+LEFT JOIN web.JobOrderPerks JOP WITH (Nolock) ON JOP.JobOrderHeaderId = JOH.JobOrderHeaderId AND JOP.PerkId =3
+LEFT JOIN web.JobOrderLines L WITH (Nolock) ON L.JobOrderHeaderId = JOH.JobOrderHeaderId 
+WHERE isnull(P.IsSisterConcern,0) =0 AND isnull(JOP.Base,0) <> 0 AND isnull(JOP.Worth,0) <> 0 
+GROUP BY JOH.JobOrderHeaderId
+) Ord
+LEFT JOIN 
+(
+		SELECT V1.* 
+		FROM
+		(
+		SELECT isnull(JJ.GenJobOrderHeaderId, JOL.JobOrderHeaderId) AS JobOrderHeaderId, sum(RL.Qty- isnull(RLS.ReturnQty,0)) AS Qty, sum((RL.Qty - isnull(RLS.ReturnQty,0))*JOL.DealQty/JOL.Qty) AS RecArea, RH.DocDate  AS DocDate
+		FROM ( SELECT * FROM web.JobReceiveHeaders H WITH (Nolock) WHERE H.DocTypeId =448 AND H.DocDate >=@YearStartDate ) RH
+		LEFT JOIN web.JobReceiveLines RL WITH (Nolock) ON RH.JobReceiveHeaderId = RL.JobReceiveHeaderId
+		LEFT JOIN web.JobReceiveLineStatus RLS WITH (Nolock) ON RLS.JObReceiveLineId = RL.JObReceiveLineId
+		LEFT JOIN web.JobOrderLines JOL WITH (Nolock) ON JOL.JobOrderLineId = RL.JobOrderLineId 
+		LEFT JOIN web.JobOrderJobOrders JJ WITH (Nolock) ON JJ.JobOrderHeaderId = JOL.JobOrderHeaderId
+		LEFT JOIN web.JobReturnLines RT WITH (Nolock) ON RT.JobReceiveLineId = RL.JobReceiveLineId
+		WHERE RT.JobReturnLineId IS NULL 
+		AND isnull(JJ.GenJobOrderHeaderId, JOL.JobOrderHeaderId) IS NOT NULL 
+		GROUP BY isnull(JJ.GenJobOrderHeaderId, JOL.JobOrderHeaderId), RH.DocDate
+		UNION ALL 
+		SELECT isnull(JJ.GenJobOrderHeaderId, JOL.JobOrderHeaderId) AS JobOrderHeaderId, sum(RL.Qty) AS Qty, sum(RL.Qty*JOL.DealQty/JOL.Qty) AS RecArea, RH.DocDate  AS DocDate
+		FROM ( SELECT * FROM web.JobOrderCancelHeaders H WITH (Nolock) WHERE H.DocTypeId =449 AND H.DocDate >=@YearStartDate  AND isnull(H.LockReason,'') <> 'Order Cancel is automatically generated by system on closing.'
+		) RH
+		LEFT JOIN web.JobOrderCancelLines RL WITH (Nolock) ON RH.JobOrderCancelHeaderId = RL.JobOrderCancelHeaderId
+		LEFT JOIN web.JobOrderLines JOL WITH (Nolock) ON JOL.JobOrderLineId = RL.JobOrderLineId
+		LEFT JOIN web.JobOrderJobOrders JJ WITH (Nolock) ON JJ.JobOrderHeaderId = JOL.JobOrderHeaderId
+		WHERE isnull(JJ.GenJobOrderHeaderId, JOL.JobOrderHeaderId) IS NOT NULL 
+		GROUP BY isnull(JJ.GenJobOrderHeaderId, JOL.JobOrderHeaderId), RH.DocDate
+		) V1
+)
+ VRec ON VRec.JobOrderHeaderId = Ord.JobOrderHeaderId
+GROUP BY Ord.JobOrderHeaderId, VRec.DocDate
+) VMain
+) A
+GROUP BY A.JobOrderHeaderId
+
+) VOrd
+LEFT JOIN web.CostCenters CC WITH (Nolock) ON CC.CostCenterId = VOrd.CostCenterId 
+LEFT JOIN web.JobOrderJobOrders JJ WITH (Nolock) ON JJ.GenJobOrderHeaderId  = VOrd.JobOrderHeaderId
+LEFT JOIN web.JobOrderHeaders NJ WITH (Nolock) ON NJ.JobOrderHeaderId = JJ.JobOrderHeaderId 
+LEFT JOIN web.CostCenters NCC WITH (Nolock) ON NCC.CostCenterId = NJ.CostCenterId  
+LEFT JOIN web.LedgerAccounts LA ON LA.PersonId = VOrd.PersonId
+LEFT JOIN 
+(
+SELECT isnull(JO.CostCenterId,L.CostCenterId) AS CostCenterId, Sum(L.Amount) AS SMallChunkAmount, Max(JOP.Worth) AS Worth, round(Sum(L.Amount) / Max(JOP.Worth),4) AS SmallChunkArea
+FROM
+(
+SELECT * FROM web.LedgerHeaders H WITH (Nolock) WHERE H.DocTypeId = 648 
+) H
+LEFT JOIN web.LedgerLines L WITH (Nolock) ON L.LedgerHeaderId = H.LedgerHeaderId
+LEFT JOIN web.JobOrderHeaders JOH WITH (Nolock) ON JOH.CostCenterId = L.CostCenterId
+LEFT JOIN web.JobOrderJobOrders JJ ON JJ.JobOrderHeaderId = JOH.JobOrderHeaderId 
+LEFT JOIN web.JobOrderHeaders JO ON JO.JobOrderHeaderId = JJ.GenJobOrderHeaderId 
+LEFT JOIN web.JobOrderPerks JOP WITH (Nolock) ON JOP.JobOrderHeaderId = JOH.JobOrderHeaderId AND JOP.PerkId =3
+WHERE L.CostCenterId IS  NOT NULL  --AND L.CostCenterId = 491491
+GROUP BY isnull(JO.CostCenterId,L.CostCenterId)
+) VSMC ON VSMC.CostCenterId = VOrd.CostCenterId 
+--WHERE VOrd.SmallChunkAmount > 0
+--AND round(VOrd.SmallChunkAmount - isnull(VSMC.SMallChunkAmount,0),2) <> 0
+
+) VMain
+GROUP BY VMain.JobOrderHeaderId, VMain.CostCenterNameMain
+HAVING Round(sum(Vmain.Amount),0) > 0
+
+
+
+SELECT * FROM Web.CostCenters WHERE CostCenterId IN (537090, 537495, 536980, 537129, 536810, 537300, 537083, 537209, 537356, 537524, 536791, 536509, 537298, 538989, 536610, 536985, 536732, 536909, 536994, 537567, 537282, 537439, 537160, 536987, 536924, 536615, 537432, 537297, 537482, 537091, 537214, 536690, 536915)
+
+
+
+
+
+
+
+
+

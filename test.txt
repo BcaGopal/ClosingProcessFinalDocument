@@ -1,0 +1,197 @@
+
+DECLARE @Table TABLE 
+(
+	JobOrderLineId INT,ProdOrderLineId INT , ProcessId INT ,JobOrderHeaderId INT , DocTypeId INT ,
+	DocumentTypeShortName VARCHAR(100),DocNo VARCHAR(100), ProductId INT , Dimension1Id INT , 
+	Specification Varchar(100) ,Dimension2Id INT ,Dimension3Id INT ,Dimension4Id INT ,JobWorkerId INT ,
+	DocDate varchar(100),DivisionId INT ,SiteId INT ,DueDate varchar(100) ,UnitconversionForId INT ,
+	DealUnitId VARCHAR(100) ,Qty DECIMAL(18,4),BalanceQty DECIMAL(18,4),DealQty DECIMAL(18,4),
+	Rate DECIMAL(18,4),BalanceAmount DECIMAL(18,4),BalanceDealAmount DECIMAL(18,4),LossQty DECIMAL(18,4),
+	ProductUidId DECIMAL(18,4),ActualDocDate varchar(100)
+)
+
+INSERT INTO @Table
+SELECT 
+	L.JobOrderLineId,L.ProdOrderLineId,H.ProcessId,
+	H.JobOrderHeaderId,H.DocTypeId,Dt.DocumentTypeShortName,H.DocNo AS JobOrderNo, 
+	L.ProductId,L.Dimension1Id,L.Specification,L.Dimension2Id,L.Dimension3Id,L.Dimension4Id,
+	H.JobWorkerId AS JobWorkerId,H.DocDate AS OrderDate,H.DivisionId,H.SiteId,H.DueDate,H.UnitconversionForId,
+	L.DealUnitId ,	isnull(L.Qty,0) AS Qty,	(isnull(L.Qty,0)-isnull(Cancel.Qty,0)+isnull(Amd.Qty,0)-isnull(Rec.Qty,0)+isnull(Ret.Qty,0)) AS BalanceQty,
+	(isnull((ROUND(CAST(L.DealQty AS float) / CAST(L.Qty AS float), 4)*(isnull(L.Qty,0)-isnull(Cancel.Qty,0)+isnull(Amd.Qty,0)-isnull(Rec.Qty,0)+isnull(Ret.Qty,0))),0)) AS DealQty,
+	isnull(L.Rate,0)+isnull(AmdRate.Rate,0) AS Rate,
+	(isnull(L.Qty,0)-isnull(Cancel.Qty,0)+isnull(Amd.Qty,0)-isnull(Rec.Qty,0)+isnull(Ret.Qty,0)) *(isnull(L.Rate,0)+isnull(AmdRate.Rate,0)) AS BalanceAmount,
+	(isnull((ROUND(CAST(L.DealQty AS float) / CAST(L.Qty AS float), 4)*(isnull(L.Qty,0)-isnull(Cancel.Qty,0)+isnull(Amd.Qty,0)-isnull(Rec.Qty,0)+isnull(Ret.Qty,0))),0)) *(isnull(L.Rate,0)+isnull(AmdRate.Rate,0)) AS BalanceDealAmount,
+	isnull(Rec.LossQty,0) AS LossQty,L.ProductUidId,H.ActualDocDate
+FROM
+(
+ SELECT H.* FROM Web.JobOrderHeaders H WITH (Nolock)
+ LEFT JOIN Web.JobOrderJobOrders JOJO WITH (Nolock) ON JOJO.GenJobOrderHeaderId=H.JobOrderHeaderId
+ LEFT JOIN Web.JobOrderHeaders JOJOH WITH (Nolock) ON JOJOH.JobOrderHeaderId=JOJO.JobOrderHeaderId
+ LEFT JOIN Web.People P WITH (Nolock) ON P.PersonID=H.JobWorkerId
+ WHERE 1=1 and  H.SiteId=17 AND H.DivisionId=6 and  JOJOH.DocTypeId IN (458) AND JOJO.JobOrderHeaderId=50095057--(455, 458, 637)
+		AND H.ProcessId=43 AND JOJOH.DocDate BETWEEN '1/Apr/19' AND '1/Apr/19' AND P.IsSisterConcern=0  --	AND H.DocDate  <='30/Mar/19' 	 
+      
+ ) AS H
+LEFT JOIN Web.JobOrderLines L WITH (Nolock) ON L.JobOrderHeaderId=H.JobOrderHeaderId
+LEFT JOIN Web.DocumentTypes Dt WITH (Nolock) ON DT.DocumentTypeId=H.DocTypeId
+ LEFT JOIN 
+ (
+    SELECT L.JobOrderLineId, sum(isnull(L.Qty,0)) AS Qty
+	FROM  Web._JobOrderCancelLines L  WITH (NoLock)
+	LEFT JOIN Web._JobOrderCancelHeaders H WITH (NoLock) ON L.JobOrderCancelHeaderId = H.JobOrderCancelHeaderId
+    WHERE 1=1 AND H.DocDate <= '30/Mar/19'  	   		  
+	GROUP BY L.JobOrderLineId
+ ) Cancel ON Cancel.JobOrderLineId=L.JobOrderLineId
+LEFT JOIN
+(
+	SELECT L.JobOrderLineId,sum(isnull(L.Qty,0)) AS Qty
+	FROM  Web._JobOrderQtyAmendmentLines L  WITH (NoLock) 
+	LEFT JOIN Web._JobOrderAmendmentHeaders H WITH (NoLock) ON L.JobOrderAmendmentHeaderId = H.JobOrderAmendmentHeaderId
+   WHERE 1=1 AND H.DocDate <= '30/Mar/19'   		  
+	GROUP BY L.JobOrderLineId
+) Amd  ON Amd.JobOrderLineId=L.JobOrderLineId
+LEFT JOIN 
+(
+    SELECT L.JobOrderLineId,Sum(isnull(L.Rate,0)) AS Rate
+	FROM  Web.JobOrderRateAmendmentLines L   WITH (NoLock)
+	LEFT JOIN Web._JobOrderAmendmentHeaders H WITH (NoLock) ON L.JobOrderAmendmentHeaderId = H.JobOrderAmendmentHeaderId
+     WHERE 1=1 AND H.DocDate <= '30/Mar/19'	   		  
+   	GROUP BY L.JobOrderLineId
+) AmdRate ON AmdRate.JobOrderLineId=L.JobOrderLineId
+LEFT JOIN 
+(
+    SELECT L.JobOrderLineId,sum(isnull(L.Qty,0) + isnull(L.LossQty,0)) AS Qty, sum(isnull(L.LossQty,0)) AS LossQty
+	FROM  Web._JobReceiveLines L   WITH (NoLock)
+	LEFT JOIN Web._JobReceiveHeaders H WITH (NoLock) ON L.JobReceiveHeaderId = H.JobReceiveHeaderId
+     WHERE 1=1 AND H.DocDate <= '30/Mar/19'  	   		  
+	GROUP BY L.JobOrderLineId
+)  Rec ON Rec.JobOrderLineId=L.JobOrderLineId   
+LEFT JOIN
+(
+    SELECT L.JobOrderLineId,sum(isnull(RL.Qty,0)) AS Qty
+	FROM  Web._JobReturnLines RL WITH (NoLock)
+	LEFT JOIN web._JobReceiveLines L  WITH (NoLock) ON L.JobReceiveLineId = RL.JobReceiveLineId 
+	LEFT JOIN Web._JobReturnHeaders H WITH (NoLock) ON RL.JobReturnHeaderId = H.JobReturnHeaderId
+    WHERE 1=1 AND H.DocDate <= '30/Mar/19' 	   		  
+	GROUP BY L.JobOrderLineId
+) Ret ON Ret.JobOrderLineId=L.JobOrderLineId
+WHERE 1=1 AND (isnull(L.Qty,0)-isnull(Cancel.Qty,0)+isnull(Amd.Qty,0)-isnull(Rec.Qty,0)+isnull(Ret.Qty,0)) > 0 AND L.ProductUidHeaderId IS NOT NULL
+
+SELECT * FROM @Table
+
+-----------------
+--- For ProductuidsHeaderInsert
+
+Insert into Web.ProductUidHeaders
+SELECT 
+	max(JOL.ProductId) as ProductId ,NULL AS Dimension1Id,NULL AS Dimension2Id,NULL AS LotNo,max(JOHN.JobOrderHeaderId) as GenDocId,
+	max(JOHN.DocNo) AS GenDocNo,max(JOHN.DoctypeId) AS GenDocTypeId,max(JOHN.DocDate) AS GenDocDate,max(JOHN.JobworkerId) AS GenPersonId,
+	max(JOHN.CreatedBy) as CreatedBy,max(JOHN.ModifiedBy) as ModifiedBy,max(JOHN.CreatedDate) as CreatedDate,max(JOHN.ModifiedDate) as ModifiedDate,
+	NULL AS OMSId,'Product Uid Transfer On Closing' AS GenRemark,'706' AS ReferenceDocTypeId,max(PUH.ProductUidHeaderid) AS ReferenceDocId,
+	NULL AS Dimension3Id,NULL AS Dimension4Id
+FROM @Table H
+LEFT JOIN Web.JobOrderLines Jol WITH (Nolock) ON H.JobOrderLineId=JOL.JobOrderLineId
+LEFT JOIN web.JobOrderJobOrders JO WITH (Nolock)  ON JO.GenJobOrderHeaderId=H.JobOrderHeaderId
+LEFT JOIN Web.JobOrderHeaders JOHN WITH (Nolock) ON JOHN.JobOrderHeaderId=JO.JobOrderHeaderId
+LEFT JOIN Web.ProductUids PU WITH (Nolock) ON PU.ProductUidHeaderId=JOL.ProductUidHeaderId 
+LEFT JOIN Web.ProductUidHeaders PUH WITH (Nolock) ON PUH.ProductUIDHeaderId=PU.ProductUidHeaderId
+LEFT JOIN 
+(
+	SELECT JRL.*,JRLS.JobReturnLineId FROM Web.JobReceiveLines JRL WITH (Nolock) 
+	LEFT JOIN Web.jobreturnlines JRLS WITH (Nolock) ON JRL.JobReceiveLineId=JRLS.JobReceiveLineId
+	WHERE JRLS.JobReturnLineId IS NULL 
+) JRL ON JRL.JobOrderLineId=JOL.JobOrderLineId AND PU.ProductUIDId=JRL.ProductUidId
+LEFT JOIN Web.JobOrderCancelLines JOCL WITH (Nolock) ON JOL.JobOrderLineId=JOCL.JobOrderLineId AND PU.ProductUIDId=JOCL.ProductUidId
+WHERE 1=1  --AND (JRL.JobOrderLineId IS NULL or JOCL.JobOrderLineId IS NULL)
+AND  (JRL.JobReceiveLineId IS NULL OR JRL.JobReturnLineId IS NOT NULL) AND  JOCL.JobOrderCancelLineId IS NULL
+Group By PUH.ProductUidHeaderid,JOL.ProductId,JOL.JobOrderLineId,JO.JobOrderHeaderId,JOHN.DoctypeId
+
+-------for the Joborderline
+
+Update Web.JobOrderLines
+set Web.JobOrderLines.ProductUidHeaderid=H.ProductUidHeaderId
+from 
+(
+Select JOLJO.JobOrderLineid,max(JO.JobOrderHeaderId) as JobOrderHeaderId,JOL.Productid,JOL.ProdorderLineId,PUN.ProductUidHeaderId	
+    from @Table H
+	LEFT JOIN Web.JobOrderLines Jol WITH (Nolock) ON H.JobOrderLineId=JOL.JobOrderLineId
+    LEFT JOIN web.JobOrderJobOrders JO WITH (Nolock)  ON JO.GenJobOrderHeaderId=H.JobOrderHeaderId
+    LEFT JOIN Web.JobOrderHeaders JOHN WITH (Nolock) ON JOHN.JobOrderHeaderId=JO.JobOrderHeaderId
+	---
+	LEFT JOIN Web.JobOrderLines JOLJO WITH (Nolock) ON JOLJO.JobOrderHeaderId=JO.JobOrderHeaderId AND JOLJO.ProductId=Jol.ProductId AND JOLJO.ProdOrderLineId=Jol.ProdOrderLineId
+		LEFT JOIN Web.ProductUids PU WITH (Nolock) ON PU.ProductUidHeaderId=JOL.ProductUidHeaderId 
+	LEFT JOIN Web.ProductUidHeaders PUH WITH (Nolock) ON PUH.ProductUIDHeaderId=PU.ProductUidHeaderId and PUH.ProductUIDHeaderId=JOL.ProductUidLastTransactionDocNo
+	--for ProductUids header id Update in Productuids table 
+	LEFT JOIN Web.ProductUidHeaders PUN WITH (Nolock) ON PUN.ReferenceDocId=JOL.ProductUidHeaderId AND PUN.ReferenceDocTypeId=706
+	--
+	LEFT JOIN 
+	(
+		SELECT JRL.*,JRLS.JobReturnLineId FROM Web.JobReceiveLines JRL WITH (Nolock) 
+		LEFT JOIN Web.jobreturnlines JRLS WITH (Nolock) ON JRL.JobReceiveLineId=JRLS.JobReceiveLineId
+		WHERE JRLS.JobReturnLineId IS NULL 
+	) JRL ON JRL.JobOrderLineId=JOL.JobOrderLineId AND PU.ProductUIDId=JRL.ProductUidId
+	LEFT JOIN Web.JobOrderCancelLines JOCL WITH (Nolock) ON JOL.JobOrderLineId=JOCL.JobOrderLineId AND PU.ProductUIDId=JOCL.ProductUidId
+	LEFT JOIN web._People P WITH (Nolock) ON P.PersonID=H.JobWorkerId
+	LEFT JOIN Web.Processes PS WITH (Nolock) ON PS.ProcessId=H.ProcessId
+	WHERE 1=1  --AND (JRL.JobOrderLineId IS NULL or JOCL.JobOrderLineId IS NULL)
+	AND  (JRL.JobReceiveLineId IS NULL OR JRL.JobReturnLineId IS NOT NULL) AND  JOCL.JobOrderCancelLineId IS NULL
+	group By JOL.JobOrderLineId,JOL.Productid,JOL.ProdorderLineId,PUN.ProductUidHeaderId,JOLJO.JobOrderLineid
+	) as  H Where Web.JobOrderLines.JobOrderLineid=H.JobOrderLineid and Web.JobOrderLines.JobOrderHeaderId=H.JobOrderHeaderId 
+	and Web.JobOrderLines.Productid=H.Productid and Web.JobOrderLines.ProdorderLineId=H.ProdorderLineId
+
+
+
+
+----------------------------ProductUidUpdate
+
+Update Web.ProductUids
+set 
+Web.ProductUids.GenDocId=H.GenDocId,
+Web.ProductUids.GenDocNo=H.GenDocNo,
+Web.ProductUids.GenDocDate=H.GenDocDate,
+Web.ProductUids.GenDocTypeId=H.GenDocTypeId,
+Web.ProductUids.GenPersonId=H.GenPersonId,
+Web.ProductUids.LastTransactionDocId=H.LastTransactionDocId,
+Web.ProductUids.LastTransactionDocNo=H.LastTransactionDocNo,
+Web.ProductUids.LastTransactionDoctypeId=H.LastTransactionDoctypeId,
+Web.ProductUids.LastTransactionDocDate=H.LastTransactionDocDate,
+Web.ProductUids.LastTransactionPersonId=H.LastTransactionPersonId,
+Web.ProductUids.ProductUidHeaderid=H.ProductUidHeaderid,
+Web.ProductUids.LastTransactionLineId=H.LastTransactionLineId
+from  
+(
+Select --ForWhere Condition
+	PU.ProductUidId,PUH.ProductUIDHeaderId as OldPUHeaderId,Jo.GenJobOrderHeaderId as OldJOHId,JOL.JobOrderLineId as OldJOLId,JOL.ProductId as OldProductId,
+	--For Update
+	JOHN.JobOrderheaderId AS GenDocId,JOHN.DocNo AS GenDocNo,JOHN.DoctypeId as GenDocTypeId,JOHN.Docdate AS GenDocDate,JOHN.JobWorkerId AS GenPersonId,
+	JOHN.JobOrderHeaderId AS LastTransactionDocId,JOHN.DocNo AS LastTransactionDocNo,JOHN.DoctypeId AS LastTransactionDoctypeId,
+	JOHN.DocDate AS LastTransactionDocDate,JOHN.JObWorkerid AS LastTransactionPersonId,PUN.ProductUIDHeaderId AS ProductUidHeaderid,
+	JOLJO.JobOrderLineId AS   LastTransactionLineId
+    from @Table H
+	LEFT JOIN Web.JobOrderLines Jol WITH (Nolock) ON H.JobOrderLineId=JOL.JobOrderLineId
+    LEFT JOIN web.JobOrderJobOrders JO WITH (Nolock)  ON JO.GenJobOrderHeaderId=H.JobOrderHeaderId
+    LEFT JOIN Web.JobOrderHeaders JOHN WITH (Nolock) ON JOHN.JobOrderHeaderId=JO.JobOrderHeaderId
+	LEFT JOIN Web.ProductUids PU WITH (Nolock) ON PU.ProductUidHeaderId=JOL.ProductUidHeaderId 
+	LEFT JOIN Web.ProductUidHeaders PUH WITH (Nolock) ON PUH.ProductUIDHeaderId=PU.ProductUidHeaderId
+	---
+	LEFT JOIN Web.JobOrderLines JOLJO WITH (Nolock) ON JOLJO.JobOrderHeaderId=JO.JobOrderHeaderId AND JOLJO.ProductId=Jol.ProductId AND JOLJO.ProdOrderLineId=Jol.ProdOrderLineId
+	--for ProductUids header id Update in Productuids table 
+	LEFT JOIN Web.ProductUidHeaders PUN WITH (Nolock) ON PUN.ReferenceDocId=PUH.ProductUIDHeaderId AND PUN.ReferenceDocTypeId=706
+	--
+	LEFT JOIN 
+	(
+		SELECT JRL.*,JRLS.JobReturnLineId FROM Web.JobReceiveLines JRL WITH (Nolock) 
+		LEFT JOIN Web.jobreturnlines JRLS WITH (Nolock) ON JRL.JobReceiveLineId=JRLS.JobReceiveLineId
+		WHERE JRLS.JobReturnLineId IS NULL 
+	) JRL ON JRL.JobOrderLineId=JOL.JobOrderLineId AND PU.ProductUIDId=JRL.ProductUidId
+	LEFT JOIN Web.JobOrderCancelLines JOCL WITH (Nolock) ON JOL.JobOrderLineId=JOCL.JobOrderLineId AND PU.ProductUIDId=JOCL.ProductUidId
+	LEFT JOIN web._People P WITH (Nolock) ON P.PersonID=H.JobWorkerId
+	LEFT JOIN Web.Processes PS WITH (Nolock) ON PS.ProcessId=H.ProcessId
+	WHERE 1=1  --AND (JRL.JobOrderLineId IS NULL or JOCL.JobOrderLineId IS NULL)
+	AND  (JRL.JobReceiveLineId IS NULL OR JRL.JobReturnLineId IS NOT NULL) AND  JOCL.JobOrderCancelLineId IS NULL
+	) as H Where  Web.ProductUids.ProductUidId=H.ProductUidId and Web.ProductUids.ProductUIDHeaderId=H.OldPUHeaderId and Web.ProductUids.GenDocId=H.OldJOHId
+	and Web.ProductUids.GenLineId=H.OldJOLId and Web.ProductUids.ProductId=H.OldProductId
+
+
+
+----------

@@ -1,0 +1,31 @@
+
+----- Find the pending record of weaving  Order 
+
+SELECT  JOH.JobOrderHeaderId, Max(convert(INT,JW.IsSisterConcern)) AS IsSisterConcern,  Max(C.CostcenterName) AS CostcenterName, Max(CE.ProductId) AS ProductId, Max(LA.LedgerAccountId) AS LedgerAccountId, Max(JOH.Remark) AS Remark, Max(JOH.UnitconversionForId) AS UnitconversionForId, Max(JOH.ActualDueDate) AS ActualDueDate, Max(JOH.DocTypeId) AS DocTypeId, Max(JOH.DocDate) AS DocDate, Max(JOH.DocNo) AS DocNo, Max(JOH.DivisionId) AS DivisionId, Max(JOH.SiteId) AS SiteId, Max(JOH.DueDate) AS DueDate,  Max(JOH.JobWorkerId) AS JobWorkerId , Max(JOH.BillToPartyId) AS BillToPartyId, Max(JOH.OrderById) AS OrderById, Max(isnull(JOH.GodownId,0)) AS GodownId, Max(JOH.ProcessId) AS ProcessId, Max(JOH.CostCenterId) AS CostCenterId ,Max(JOH.TermsAndConditions) AS   TermsAndConditions  
+FROM (
+  SELECT H.JobOrderHeaderId AS JobOrderHeaderId, L.JobOrderLineId,   L.Qty -  isnull(VRec.RecQty,0) - isnull(VCan.CanQty,0) AS BalQty  
+    FROM (  
+          SELECT H.JobOrderHeaderId FROM Web.JobOrderHeaders H WITH (Nolock) WHERE H.DocTypeId IN ( 458,455 ) AND H.DocDate <=' 3/12/2019 12:00:00 AM' AND H.SiteId = 17 AND H.DivisionId =6  ) H  
+          LEFT JOIN web.JobOrderLines L WITH (Nolock) ON L.JobOrderHeaderId = H.JobOrderHeaderId  
+          LEFT JOIN   (  
+                SELECT RL.JobOrderLineId, sum(RL.Qty - isnull(RT.Qty,0)) AS RecQty  
+                 FROM  (  
+                     SELECT JobReceiveHeaderId FROM Web.JobReceiveHeaders RH WITH (Nolock) WHERE RH.DocTypeId = 448  AND RH.DocDate <=' 3/12/2019 12:00:00 AM' AND RH.SiteId = 17 AND RH.DivisionId =6   ) RH   
+                         LEFT JOIN web.JobReceiveLines RL WITH (Nolock) ON RL.JobReceiveHeaderId = RH.JobReceiveHeaderId     
+                            LEFT JOIN web.JobReturnLines RT WITH (Nolock) ON RT.JobReceiveLineId = RL.JobReceiveLineId     GROUP BY RL.JobOrderLineId   ) VRec ON VRec.JobOrderLineId = L.JobOrderLineId 
+                             LEFT JOIN   (    
+                               SELECT CL.JobOrderLineId, sum(CL.Qty) AS CanQty     
+                                 FROM Web.JobOrderCancelLines CL WITH (Nolock) GROUP BY CL.JobOrderLineId   ) VCan ON VCan.JobOrderLineId = L.JobOrderLineId  WHERE L.Qty - isnull(VRec.RecQty,0) - isnull(VCan.CanQty,0) > 0  ) VMain 
+                                  LEFT JOIN WEb.JobOrderHeaders JOH WITH (Nolock) ON JOH.JobOrderHeaderId = VMain.JobOrderHeaderId 
+                                   LEFT JOIN web.CostCenters C WITH (Nolock) ON C.CostCenterId = JOH.CostCenterId  
+                                   LEFT JOIN web.CostCenterStatusExtendeds CE WITH (Nolock) ON CE.CostCenterId = JOH.CostCenterId 
+                                    LEFT JOIN web.LedgerAccounts LA WITH (Nolock) ON LA.PersonId = JOH.JobWorkerId 
+                                     LEFT JOIN web.People JW WITH (Nolock) ON JW.PersonID = JOH.JobWorkerId  Where IsNull(JW.IsSisterConcern,0) = 0  GROUP BY JOH.JobOrderHeaderId  Order by (Case When IsNumeric(Max(JOH.DocNo)) > 0 Then Convert(Numeric,Max(JOH.DocNo)) Else 0 End) 
+                                     
+---------------- Find the null values in LossQty colunm                                      
+
+SELECT * FROM Web.JobOrderLines WHERE JobOrderHeaderId IN (50091601, 50090422, 50085985, 50091853, 50087050, 50090499, 50092832, 50092589, 50088802, 50085828, 50092841, 50091762, 50087139, 50090583, 50092498, 50090417, 50087961, 50092180, 50090431, 50092839, 50092146, 50090008, 50091860, 50084999, 50090426, 50092805, 50091855, 50092848, 50092496, 50090424, 50091592, 50092837, 50091735, 50086823, 50092980, 50086571, 50087075, 50087673, 50092846, 50088922, 50091733, 50088421, 50091730, 50092148, 50086034, 50091948, 50092483, 50090428, 50091865, 50090196, 50092953, 50091599, 50091951, 50087068, 50083410, 50091731, 50091814, 50092833, 50087071, 50092836, 50092181, 50091949, 50090429, 50091849, 50092333, 50086900, 50092399, 50092585, 50092485, 50090009, 50086265, 50091732, 50092050, 50091864, 50092703, 50091950, 50092451, 50090413, 50087522, 50088223, 50091598, 50091850, 50092182, 50092829, 50092145, 50090007, 50089612, 50092838, 50091736, 50087065, 50081735, 50090434, 50081406, 50090414, 50085545, 50092956, 50090005, 50087074, 50087526, 50087426, 50087383, 50091734, 50091952, 50091763, 50090432, 50092590, 50091729, 50087063, 50092645, 50090584, 50091852, 50088769, 50087072, 50083514, 50090255, 50091861, 50092588, 50087147, 50085252, 50087058, 50088899, 50090585, 50090519, 50091607, 50090419, 50091856, 50085255, 50092861, 50092795, 50091859, 50087076, 50089618, 50091739, 50091822, 50091639, 50087062, 50090586, 50090254, 50092962, 50091740, 50092510, 50086825, 50087962, 50087444, 50092828, 50090418, 50086843, 50090421, 50087261, 50092960, 50086494, 50085876, 50088063, 50091641, 50091741, 50092176, 50079006) AND LossQty IS NULL 
+ ---------------------------------  Update the LossQty value null to Zero  at time of Closing .
+SELECT * FROM Web.JobOrderLines WHERE JobOrderLineId IN (50967516, 50967521, 50967522, 50967523, 50967538, 50967540, 50967541, 50967542, 50967543, 50967544, 50967545, 50995670, 50995671, 50995760, 50995761, 51045289, 51045290, 51088681)
+ 
+ 
