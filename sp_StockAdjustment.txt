@@ -1,0 +1,172 @@
+ALTER PROCEDURE Web.sp_StockAdjustment (@DocTypeId INT, @DocDate SMALLDATETIME, @GodownId INT, 
+@CreatedBy NVARCHAR(Max), @DivisionId INT, @SiteId INT, @PhysicalDateList NVARCHAR(Max), @Remark NVARCHAR(Max))
+AS 
+
+DECLARE @ProductTypeIds NVARCHAR(Max)
+DECLARE @ContraDocTypeIds NVARCHAR(Max)
+SELECT @ProductTypeIds = filterProductTypes, @ContraDocTypeIds = filterContraDocTypes 
+FROM Web.StockHeaderSettings WHERE DocTypeId = @DocTypeId AND SiteId = @SiteId AND DivisionId = @DivisionId
+
+SET @CreatedBy = 'System'
+
+DECLARE @ErrorTable AS TABLE
+(
+	ErrorText NVARCHAR(Max)
+)
+
+IF (@ProductTypeIds = NULL OR @ProductTypeIds = '')
+BEGIN
+	RETURN
+END 
+
+DECLARE @DocNo NVARCHAR(20)
+EXEC Web.FGetDocNo  @DocDate,  @DocTypeId, @SiteId ,@DivisionId,'Web.StockHeaders', @DocNo OUTPUT
+
+
+BEGIN TRY
+BEGIN TRANSACTION;
+
+INSERT INTO Web.StockHeaders (DocTypeId, DocDate, DocNo, DivisionId, SiteId, GodownId, Remark, Status, 
+CreatedBy, CreatedDate, ModifiedBy, ModifiedDate)
+SELECT @DocTypeId AS DocTypeId, @DocDate AS DocDate, @DocNo AS DocNo, @DivisionId AS DivisionId,
+@SiteId AS Siteid, @GodownId AS GodownId, @Remark AS Remark, 1 AS Status, @CreatedBy AS CreatedBy, getdate() AS CreatedDate,
+@CreatedBy AS ModifiedBy, getdate() AS ModifiedDate
+
+DECLARE @StockHeaderId INT 
+--SELECT @StockHeaderId = StockHeaderId FROM inserted
+SELECT @StockHeaderId = SCOPE_IDENTITY();
+
+
+INSERT INTO Web.Stocks (StockHeaderId, ProductId, ProcessId, GodownId, Qty_Iss, Qty_Rec, 
+Dimension1Id, Dimension2Id, CreatedBy, ModifiedBy, CreatedDate, ModifiedDate, DocDate)
+SELECT @StockHeaderId AS StockHeaderId, L.ProductId, L.ProcessId, @GodownId AS GodownId,
+Case When IsNull(Sum(L.Qty_Rec),0) - IsNull(Sum(L.Qty_Iss),0) > 0 Then IsNull(Sum(L.Qty_Rec),0) - IsNull(Sum(L.Qty_Iss),0) Else 0 End As Qty_Iss, 
+Case When IsNull(Sum(L.Qty_Rec),0) - IsNull(Sum(L.Qty_Iss),0) < 0 Then IsNull(Sum(L.Qty_Iss),0) - IsNull(Sum(L.Qty_Rec),0) Else 0 End As Qty_Rec, 
+L.Dimension1Id, L.Dimension2Id,
+@CreatedBy AS CreatedBy, @CreatedBy AS ModifiedBy, 
+getdate() AS CreatedDate, getdate() AS ModifiedDate,
+@DocDate AS DocDate
+FROM Web.Stocks L 
+LEFT JOIN Web.Products P ON L.ProductId = P.ProductId
+LEFT JOIN Web.ProductGroups Pg ON P.ProductGroupId = Pg.ProductGroupId
+WHERE L.GodownId = @GodownId
+AND Pg.ProductTypeId IN (SELECT Items FROM [dbo].[Split] (@ProductTypeIds, ','))
+AND L.DocDate <= @DocDate
+GROUP BY L.ProductId, L.Dimension1Id, L.Dimension2Id, L.ProcessId
+HAVING IsNull(Sum(L.Qty_Rec),0) - IsNull(Sum(L.Qty_Iss),0) <> 0
+
+
+INSERT INTO Web.Stocks (StockHeaderId, ProductUidId, ProductId, ProcessId, GodownId, Qty_Iss, Qty_Rec, 
+Dimension1Id, Dimension2Id, CreatedBy, ModifiedBy, CreatedDate, ModifiedDate, DocDate)
+SELECT @StockHeaderId AS StockHeaderId, L.ProductUidId, L.ProductId, L.FromProcessId AS ProcessId, @GodownId AS GodownId,
+0 As Qty_Iss, Sum(L.Qty) As Qty_Rec, 
+L.Dimension1Id, L.Dimension2Id,
+@CreatedBy AS CreatedBy, @CreatedBy AS ModifiedBy, 
+getdate() AS CreatedDate, getdate() AS ModifiedDate,
+@DocDate AS DocDate
+FROM Web.StockHeaders H 
+LEFT JOIN Web.StockLines L ON H.StockHeaderId = L.StockHeaderId
+WHERE H.DocTypeId IN (SELECT Items FROM [dbo].[Split] (@ContraDocTypeIds, ','))
+AND H.GodownId = @GodownId
+AND H.DocDate IN (SELECT Convert(DATE,Items) FROM [dbo].[Split] (@PhysicalDateList, ','))
+GROUP BY L.ProductUidId, L.ProductId, L.Dimension1Id, L.Dimension2Id, L.FromProcessId
+
+
+INSERT INTO Web.StockLines(StockHeaderId, ProductUidId, ProductId, FromProcessId, Qty, Dimension1Id, Dimension2Id, Rate, Amount,
+CreatedBy, ModifiedBy, CreatedDate, ModifiedDate, StockId, DocNature, Sr)
+
+SELECT V1.StockHeaderId, V1.ProductUidId, V1.ProductId, V1.ProcessId AS FromProcessId, V1.Qty, V1.Dimension1Id, V1.Dimension2Id, 0 AS Rate, 0 AS Amount,
+V1.CreatedBy, V1.ModifiedBy, V1.CreatedDate, V1.ModifiedDate, V1.StockId, V1.DocNature, Row_Number() OVER (ORDER BY V1.ProductId) AS Sr
+FROM 
+(
+	SELECT L.StockHeaderId, L.ProductUidId, L.ProductId, L.ProcessId, L.Qty_Iss AS Qty, L.Dimension1Id, L.Dimension2Id,
+	L.CreatedBy, L.ModifiedBy, L.CreatedDate, L.ModifiedDate, L.StockId, 'I' AS DocNature
+	FROM Web.StockHeaders H 
+	LEFT JOIN Web.Stocks L ON H.StockHeaderId = L.StockHeaderId
+	WHERE H.DocTypeId = @DocTypeId
+	AND IsNull(L.Qty_Iss,0) > 0
+	AND H.DocDate = @DocDate
+	
+	UNION ALL 
+	
+	SELECT L.StockHeaderId, L.ProductUidId, L.ProductId, L.ProcessId AS FromProcessId, L.Qty_Rec AS Qty, L.Dimension1Id, L.Dimension2Id,
+	L.CreatedBy, L.ModifiedBy, L.CreatedDate, L.ModifiedDate, L.StockId, 'R' AS DocNature
+	FROM Web.StockHeaders H 
+	LEFT JOIN Web.Stocks L ON H.StockHeaderId = L.StockHeaderId
+	WHERE H.DocTypeId = @DocTypeId
+	AND IsNull(L.Qty_Rec,0) > 0
+	AND H.DocDate = @DocDate
+) AS V1
+
+
+IF (@ProductTypeIds = '1')
+BEGIN
+	UPDATE Web.ProductUids
+	SET Web.ProductUids.CurrenctGodownId = V1.GodownId,
+	Web.ProductUids.CurrenctProcessId = V1.ProcessId,
+	Web.ProductUids.Status = V1.Status
+	FROM (
+		SELECT L.ProductUidId, H.GodownId, L.ProcessId AS ProcessId, 'Receive'  AS Status
+		FROM Web.StockHeaders H 
+		LEFT JOIN Web.Stocks L ON H.StockHeaderId = L.StockHeaderId
+		LEFT JOIN Web.ProductUids Pu ON L.ProductUidId = Pu.ProductUIDId
+		WHERE H.DocTypeId = @DocTypeId
+		AND H.DocDate = @DocDate
+		AND L.ProductUidId IS NOT NULL
+		AND Pu.LastTransactionDocDate < @DocDate
+	) AS V1 WHERE Web.ProductUids.ProductUidId = V1.ProductUidId	
+	
+	
+	UPDATE Web.ProductUids
+	SET Web.ProductUids.Status = VMain.Status
+	FROM (
+		SELECT Pu.ProductUIDId, 'NF' + FORMAT(COnvert(DATE,@DocDate), 'ddMMyy') AS Status
+		FROM Web.ProductUids Pu
+		LEFT JOIN (
+			SELECT L.ProductUidId, H.GodownId, L.FromProcessId AS ProcessId, 'Receive'  AS Status
+			FROM Web.StockHeaders H 
+			LEFT JOIN Web.StockLines L ON H.StockHeaderId = L.StockHeaderId
+			LEFT JOIN Web.ProductUids Pu ON L.ProductUidId = Pu.ProductUIDId
+			WHERE H.DocTypeId = @DocTypeId
+			AND H.DocDate = @DocDate
+			AND L.ProductUidId IS NOT NULL
+		) AS V1 ON Pu.ProductUIDId = V1.ProductUidId
+		WHERE V1.ProductUidId IS NULL
+		AND Pu.Status NOT IN ('Pack','Dispatch','Issue','Return','SILAI','Cancel','Gen')
+		AND Pu.Status NOT LIKE 'NF%'
+		AND Pu.LastTransactionDocDate < @DocDate
+	) AS VMain WHERE Web.ProductUids.ProductUidId = VMain.ProductUidId
+END
+
+UPDATE Web.StockHeaders
+SET Web.StockHeaders.ReferenceDocId = V1.ReferenceDocId,
+Web.StockHeaders.ReferenceDocTypeId = V1.ReferenceDocTypeId,
+Web.StockHeaders.LockReason = 'Physical Stock Adjusted'
+FROM (
+	SELECT H.StockHeaderId,  @StockHeaderId AS ReferenceDocId, @DocTypeId AS ReferenceDocTypeId
+	FROM Web.StockHeaders H 
+	WHERE H.DocTypeId IN (SELECT Items FROM [dbo].[Split] (@ContraDocTypeIds, ','))
+	AND H.GodownId = @GodownId
+	AND H.DocDate IN (SELECT Convert(DATE,Items) FROM [dbo].[Split] (@PhysicalDateList, ','))
+) AS V1 WHERE Web.StockHeaders.StockHeaderId = V1.StockHeaderId
+
+COMMIT TRANSACTION;
+
+END TRY
+BEGIN CATCH
+ 	ROLLBACK TRANSACTION
+ 	INSERT INTO @ErrorTable(ErrorText)
+ 	SELECT ERROR_MESSAGE() AS ErrorMessage;
+END CATCH
+
+SELECT * FROM @ErrorTable
+GO
+
+
+https://uppcl.mpower.in/wss/QuickBillPay.htm
+http://www.uppclonline.com/dispatch/Portal/appmanager/uppcl/wss?_nfpb=true&_pageLabel=uppcl_billInfo_payBill_home&pageID=PR_1010
+  
+
+18-0309
+5266
+5133
