@@ -1,0 +1,415 @@
+
+
+DECLARE @Id INT = 50095057
+
+DECLARE @Requisition INT=NULL 
+
+SELECT @Requisition=(CASE WHEN max(SL.RequisitionLineId) IS NOT NULL THEN 1 ELSE NULL END)
+FROM Web.RequisitionHeaders H 
+LEFT JOIN web.RequisitionLines L ON L.RequisitionHeaderId = H.RequisitionHeaderId 
+LEFT JOIN Web.Stocklines SL WITH (Nolock) ON SL.RequisitionLineId=L.RequisitionLineId
+WHERE H.ReferenceDocId = @Id
+
+
+SELECT @Requisition AS Requisition,H.SiteId, H.DivisionId, H.JobOrderHeaderId, DT.DocumentTypeShortName AS DocumentTypeName, H.DocDate, H.DocNo, H.DueDate, H.CreatedBy, H.CreatedDate,  
+H.Remark,  P.Name AS JobWorkerName,  PA.Address AS JobWorkerAddress,City.CityName AS JobWorkerCity, P.Phone AS JobWorkerContactNo,
+PB.Name AS OrderIssueBy, CC.CostCenterName,  H.CreditDays, H.TermsAndConditions,    
+JOHD.TimeIncentive, JOHD.TimePenalty,JOHD.SmallChunksPenaltyRate, JOHD.SmallChunksPenaltyCount,
+L.JobOrderLineId, PD.ProductName, L.DueDate AS LineDueDate, L.Remark AS LineRemark,
+AU.UnitName AS AUUnitName, isnull(AU.DecimalPlaces,0) AS AUDecimalPlaces, 
+(CASE WHEN PG.ImageFileName IS NOT NULL THEN 'Uploads\'+PG.ImageFolderName+'\'+PG.ImageFileName 
+  ELSE 'Uploads\NoImage.PNG'  END) AS ImagePath,
+  '7355cc56-5459-471d-bc5c-8cc85a560a14' AS  ImageFolderName,'Prod12345_8bca848c-4af7-4db6-a275-8c5d1264fcfe.jpg' AS  ImageFileName,
+  PG.ImageFolderName,PG.ImageFileName,
+PG.ProductGroupName, VRA.ManufaturingSizeName AS SizeName, U.UnitName, isnull(U.DecimalPlaces,0) AS DecimalPlaces, 
+L.Rate,
+isnull(replace(convert(NVARCHAR, JOLS.RateAmendmentDate, 106), ' ', '/'),0) AS RateAmendmentDate,isnull(JOLS.RateAmendmentRate,0) AS RateAmendmentRate,
+
+-- ( SELECT isnull(JOLC.Rate,0)   
+ --FROM web.JobOrderLineCharges JOLC WITH (Nolock) WHERE JOLC.LineTableId = L.JobOrderLineId AND JOLC.ChargeId =31 
+ --) AS LineIncentive, 
+POH.DocNo AS ProdOrderNo,  COL.ColourName, PQ.ProductQualityName, PQ.Weight AS WoolLagat, L.LossQty, L.NonCountedQty AS ClothQty,
+L.Qty AS OrderQty, isnull(JOLS.CancelQty,0) AS CancelQty, L.DealQty - isnull(JOLS.CancelDealQty,0) AS BalanceArea, --FJOL.Qty* VRA.SqYardPerPcs  AS BalanceArea,
+( SELECT TOP 1 isnull(RegistrationNo,'')  FROM web.PersonRegistrations WHERE PersonId = H.JobWorkerId AND RegistrationType = 'PAN No' ) AS PanNo,
+(SELECT TOP 1  PR.RegistrationNo  FROM web.PersonRegistrations PR WHERE PersonId = H.JobWorkerId   AND RegistrationType ='Aadhar No' ) AS AADHAR,
+(SELECT TOP 1  PR.RegistrationNo  FROM web.PersonRegistrations PR WHERE PersonId = H.JobWorkerId   AND RegistrationType ='GST No' ) AS GST,
+--CASE WHEN L.AmendmentCount > 0 THEN 'A ' ELSE '' END + CASE WHEN L.CancelCount >0  THEN 'C ' ELSE '' END + CASE WHEN L.RateAmdCount > 0 THEN 'R ' ELSE '' END AS CurrentStatus,  
+''  AS CurrentStatus,
+VPU.ProductUidList,
+
+--Web.SplitString ((SELECT  Web.FGetListofJobOrder (L.JobOrderLineId)),',',22) AS ProductUidList,
+
+PSH.ProcessSequenceHeaderName,
+H.ModifiedBy +' ' + replace(convert(NVARCHAR, H.ModifiedDate, 106), ' ', '/') + substring (convert(NVARCHAR,H.ModifiedDate),13,7) AS ModifiedBy, 
+H.ModifiedDate,   AL.ApproveBy +' ' + replace(convert(NVARCHAR, AL.ApproveDate, 106), ' ', '/') + substring (convert(NVARCHAR,AL.ApproveDate),13,7) AS ApproveBy,   AL.ApproveDate,
+'ProcWeavingOrderPrint1 ' + convert(NVARCHAR,H.JobOrderHeaderId) AS SubReportProcList,  
+'WeavingOrder_Print.rdl' AS ReportName , 
+(CASE WHEN Isnull(H.Status,0)=0 OR Isnull(H.Status,0)=8 THEN 0 ELSE 1 END ) AS Status,
+--(CASE WHEN Isnull(H.Status,0)= 0 OR Isnull(H.Status,0)=8 THEN 'Provisional Weaving Order Form ' ELSE 'Weaving Order Form ' END ) AS ReportTitle  
+(CASE WHEN Isnull(H.Status,0)= 0 OR Isnull(H.Status,0)=8 THEN 'Provisional ' +(CASE WHEN DT.PrintTitle IS NULL THEN DT.DocumentTypeName ELSE DT.PrintTitle END ) ELSE (CASE WHEN DT.PrintTitle IS NULL THEN DT.DocumentTypeName ELSE DT.PrintTitle END ) END )+' (Job Work) ' AS ReportTitle ,
+ --STC.Code AS SalesTaxProductCodes 
+(CASE WHEN H.ProcessId IN (26,28) THEN  STC.Code ELSE PSSTC.Code END)  AS SalesTaxProductCodes,
+(SELECT TOP 1 SalesTaxProductCodeCaption FROM web.SiteDivisionSettings WHERE H.DocDate BETWEEN StartDate AND IsNull(EndDate,getdate()) AND SiteId=H.SiteId AND DivisionId=H.DivisionId ORDER BY StartDate)  AS SalesTaxProductCodeCaption
+             
+FROM ( SELECT * FROM Web._JobOrderHeaders WITH (Nolock) WHERE JobOrderHeaderId = @Id ) H  
+LEFT JOIN Web._JobOrderLines L WITH (Nolock) ON L.JobOrderHeaderId = H.JobOrderHeaderId 
+LEFT JOIN web.JobOrderLineStatus JOLS WITH (Nolock) ON JOLS.JoborderlineId = L.JoborderlineId
+LEFT JOIN web.JobOrderHeaderDetail JOHD WITH (Nolock) ON JOHD.JobOrderHeaderId = H.JobOrderHeaderId
+LEFT JOIN Web.DocumentTypes DT WITH (Nolock) ON DT.DocumentTypeId = H.DocTypeId   
+LEFT JOIN web.CostCenters CC ON CC.CostCenterId = H.CostCenterId
+LEFT JOIN Web._People P WITH (Nolock) ON P.PersonID = H.JobWorkerId 
+LEFT JOIN Web.Processes PS WITH (Nolock) ON PS.ProcessId=H.ProcessId
+LEFT JOIN Web.SalesTaxProductCodes PSSTC WITH (Nolock) ON PSSTC.SalesTaxProductCodeId=PS.SalesTaxProductCodeId      
+LEFT JOIN Web.PersonAddresses PA WITH (nolock) ON PA.PersonId = P.PersonID 
+LEFT JOIN Web.Cities City WITH (nolock) ON City.CityId = PA.CityId
+LEFT JOIN Web.People PB WITH (Nolock) ON PB.PersonID = H.OrderById  
+LEFT JOIN Web.Products PD WITH (Nolock) ON PD.ProductId = L.ProductId  
+LEFT JOIN web.ProductGroups PG ON PG.ProductGroupId = PD.ProductGroupId 
+LEFT JOIN web.FinishedProduct FP ON FP.ProductId =L.ProductId
+LEFT JOIN web.Colours COL WITH (Nolock) ON COL.ColourId = FP.ColourId 
+LEFT JOIN web.ProductQualities PQ WITH (Nolock) ON PQ.ProductQualityId = FP.ProductQualityId 
+LEFT JOIN web.ProdOrderLines POL WITH (Nolock) ON POL.ProdOrderLineId = L.ProdOrderLineId
+LEFT JOIN WEb.ProdOrderHeaders POH ON POH.ProdOrderHeaderId = POL.ProdOrderHeaderId
+LEFT JOIN web.ProcessSequenceHeaders PSH WITH (Nolock) ON PSH.ProcessSequenceHeaderId = FP.ProcessSequenceHeaderId
+LEFT JOIN Web.Units U WITH (Nolock) ON U.UnitId = PD.UnitId  
+LEFT JOIN Web.Units AU WITH (Nolock) ON AU.UnitId=L.DealUnitId
+LEFT JOIN Web.ViewRugSize VRA WITH (Nolock) ON VRA.ProductId = L.ProductId  
+LEFT JOIN Web.SalesTaxProductCodes STC WITH (Nolock) ON STC.SalesTaxProductCodeId= IsNull(PD.SalesTaxProductCodeId, Pg.DefaultSalesTaxProductCodeId)
+LEFT JOIN 
+	(      
+	SELECT AL.DocTypeId, AL.DocId, Max(AL.CreatedBy) AS ApproveBy , max(AL.CreatedDate) AS ApproveDate        FROM  Web.ActivityLogs AL      WHERE AL.ActivityType =2      GROUP BY AL.DocTypeId, AL.DocId  
+	) AL ON AL.DocTypeId  = H.DocTypeId AND AL.DocId = H.JobOrderHeaderId  
+LEFT JOIN 
+  (
+  	SELECT PUH.ProductUIDHeaderId, Min( convert(INT,PU.ProductUidName)) AS MinProductUId, Max(convert(INT,PU.ProductUidName)) AS MaxProductUId,
+ 	CASE WHEN  Min( convert(INT,PU.ProductUidName)) = Max(convert(INT,PU.ProductUidName)) THEN convert(NVARCHAR,Max(convert(INT,PU.ProductUidName))) ELSE 
+	Convert(NVARCHAR,Min( convert(INT,PU.ProductUidName))) +'-'+ convert(NVARCHAR,Max(convert(INT,PU.ProductUidName))) END AS ProductUidList
+	FROM
+	(
+	SELECT * FROM web.ProductUidHeaders WITH (Nolock) WHERE GenDocId = @Id
+	) AS PUH
+	LEFT JOIN web.ProductUids PU WITH (Nolock) ON PU.ProductUidHeaderId = PUH.ProductUidHeaderId 
+	GROUP BY PUH.ProductUIDHeaderId
+
+  ) VPU ON VPU.ProductUIDHeaderId = L.ProductUIDHeaderId
+ WHERE H.JobOrderHeaderId	=  @Id   
+ ORDER BY L.JobOrderLineId
+
+
+
+SELECT isnull(JOLC.Rate,0)   
+FROM web.JobOrderLineCharges JOLC WITH (Nolock) 
+WHERE 1=1
+--AND JOLC.LineTableId = L.JobOrderLineId 
+AND JOLC.ChargeId =31 
+--AND JOLC.HeaderTableId = 50095057
+AND JOLC.LineTableId =  51163885
+
+
+
+SELECT * FROM Web.JobOrderLines WHERE JobOrderHeaderId = 50095057
+
+
+SELECT * FROM Web.JobOrderLineCharges
+WHERE LineTableId  IN (51163885, 51163886, 51163887)
+ORDER BY LineTableId, ChargeId
+
+
+
+SELECT * FROM Web.JobOrderJobOrders WHERE JobOrderHeaderId = 50095057
+
+
+SELECT * FROM Web.JobOrderLines WHERE JobOrderHeaderId = 50094902
+
+
+
+SELECT * FROM Web.JobOrderLineCharges
+WHERE LineTableId  IN (51161055, 51161056, 51161057)
+ORDER BY LineTableId, ChargeId
+
+
+
+SELECT * FROM Web.JobOrderLineCharges WHERE LineTableId = 51165017 AND ChargeId =29 
+
+SELECT * FROM Web.JobOrderLines WHERE JobOrderLineId  = 51166388 
+
+SELECT * FROM Web.JobOrderHeaders WHERE JobOrderHeaderId = 50095786
+
+
+SELECT L1.JobOrderLineId AS LineTableId, Lc.Sr, Lc.ChargeId, Lc.AffectCost, Lc.ChargeTypeId, Lc.CalculateOnId, Lc.LedgerAccountDrId, Lc.LedgerAccountCrId, Lc.CostCenterId, Lc.RateType, Lc.IncludedInBase, Lc.ParentChargeId, Lc.Rate, Lc.Amount, Lc.IsVisible, Lc.OMSId,   
+L1.JobOrderHeaderId AS HeaderTableId, Lc.PersonId, Lc.ContraLedgerAccountId, Lc.DealQty, Lc.IncludedCharges, Lc.IncludedChargesCalculation, Lc.AddDeduct   
+FROM Web.JobOrderHeaders J   
+LEFT JOIN Web.JobOrderJobOrders Jj ON J.JobOrderHeaderId = Jj.JobOrderHeaderId  
+LEFT JOIN Web.JobOrderHeaders H ON jj.GenJobOrderHeaderId = H.JobOrderHeaderId  
+LEFT JOIN Web.JobOrderLines L ON H.JobOrderHeaderId = L.JobOrderHeaderId  
+LEFT JOIN Web.JobOrderLineCharges Lc ON L.JobOrderLineId = Lc.LineTableId  
+LEFT JOIN Web.JobOrderLines L1 ON L1.JobOrderHeaderId = J.JobOrderHeaderId  
+AND IsNull(L1.ProductId,0) = IsNull(L.ProductId,0)  
+AND IsNull(L1.ProductUidId,0) = IsNull(L.ProductUidId,0)   
+AND IsNull(L1.ProdOrderLineId,0) = IsNull(L.ProdOrderLineId,0)   
+AND IsNull(L1.Sr,0) = IsNull(L.Sr,0)   
+WHERE J.JobOrderHeaderId =   50095057    
+AND L1.JobOrderLineId IS NOT NULL
+
+
+
+
+SELECT Max(H.JobOrderHeaderId), Max(H.DocTypeId), Max(H.DocDate), Max(H.DocNo), Lc.LineTableId, Lc.ChargeId, Count(*) AS Cnt, Max(Lc.Id) AS Id
+FROM Web.JobOrderLineCharges Lc
+LEFT JOIN Web.JobOrderLines L ON Lc.LineTableId = L.JobOrderLineId
+LEFT JOIN Web.JobOrderHeaders H ON L.JobOrderHeaderId = H.JobOrderHeaderId
+WHERE H.DocDate >= '01/Apr/2019'
+GROUP BY Lc.LineTableId, Lc.ChargeId
+HAVING Count(*) > 1
+
+
+
+SELECT * FROM Web.JobOrderLineCharges WHERE LineTableId = 51165025 AND ChargeId = 29
+
+
+
+
+SELECT * FROM Web.JobReceiveHeaders ORDER BY DocDate DESC	
+
+
+
+
+SELECT * FROM Web.ProductUids WHERE ProductUidName = '3232705'
+
+--------------
+
+
+
+
+
+SELECT H.* FROM Web.JobReceiveHeaders H WHERE H.DocDate >= '26/Mar/2019' 
+
+
+
+
+SELECT DISTINCT H.DocTypeId, D.DocumentTypeName
+FROM Web.JobReceiveHeaders H
+LEFT JOIN Web.DocumentTypes D ON H.DocTypeId = D.DocumentTypeId
+
+SELECT L.*
+FROM Web.JobReceiveHeaders H 
+LEFT JOIN Web.JobReceiveLines L ON H.JobReceiveHeaderId = L.JobReceiveHeaderId
+WHERE H.DocTypeId = 1853
+ORDER BY L.JobReceiveLineId DESC	
+
+
+
+SELECT Pp.Name AS PersonName, H.PersonId, G.GodownName, Pt.ProductTypeName, P.ProductName, H.DivisionId, H.SiteId, L.*
+FROM Web.StockHeaders H 
+LEFT JOIN Web.StockLines L ON H.StockHeaderId = L.StockHeaderId
+LEFT JOIN Web.Products P ON L.ProductId = P.ProductId
+LEFT JOIN Web.ProductGroups Pg ON P.ProductGroupId = Pg.ProductGroupId
+LEFT JOIN Web.ProductTypes Pt ON Pg.ProductTypeId = Pt.ProductTypeId
+LEFT JOIN Web.Godowns G ON H.GodownId = G.GodownId
+LEFT JOIN Web.People Pp ON H.PersonId = Pp.PersonID
+WHERE H.DocTypeId = 491
+AND H.DocDate >= '01/Mar/2019'
+ORDER BY Pt.ProductTypeName
+
+
+
+
+
+SELECT * FROM Web.StockHeaders WHERE DocTypeId  = 491
+
+
+SELECT * FROM Web.StockLines WHERE StockHeaderId = 2024763
+
+
+'AkashDeep.Singh'
+
+
+SELECT * FROM Web.StockHeaders WHERE StockHeaderId = 2024901
+SELECT * FROM Web.StockLines WHERE StockHeaderId = 2024901
+
+
+SELECT * FROM Web.Stocks WHERE StockHeaderId = 2024901
+
+SELECT * FROM Web.DocumentTypes WHERE DocumentTypeName LIKE '%Physical%'
+
+
+
+SELECT * FROM Web.StockHeaders WHERE CreatedBy LIKE '%Akash%'
+
+
+SELECT * FROM Web.JobReceiveLines WHERE JobOrderLineId IN (SELECT JoborderlineId FROM Web.JobOrderLines WHERE JobOrderHeaderId=50091855)
+
+-------------
+--ALTER Procedure [Web].[sp_MonthlyPosting]
+--    @Site VARCHAR(20) = NULL,
+--    @Division VARCHAR(20) = NULL,
+--	@AsOnDate VARCHAR(20) = NULL,
+--	@UserName VARCHAR(Max) = NULL,
+--    @JobWorker VARCHAR(Max) = NULL,
+--    @CostCenterId VARCHAR(Max) = NULL,  
+--	@JoborderHeaderId VARCHAR(Max) = NULL
+--	   
+--AS
+--BEGIN 
+--
+--
+---- The Second Date will change from '31/Mar/2018' To '31/Mar/2019' for Next fiancial Year.
+--EXEC web.SpUpdate_JobOrderLineStatusWithDate '01/Apr/2016','31/Mar/2019'
+--EXEC Web.SpUpdate_JobOrderHeaderStatus
+--
+---- Date Changes as per current Month for which Ledger is posted in May we will run for April So Date will be 30/Apr/2018
+--EXEC Web.sp_WeavingTimeIncentive_LedgerPostOnSingleClick 17,1,'31/Mar/2019','system' -- Date Change from '30/Apr/2018' To '30/Jun/2018'
+--EXEC Web.sp_WeavingTimePenalty_LedgerPostOnSingleClick 17,1,'31/Mar/2019','system'	-- Date Change from '30/Apr/2018' To '30/Jun/2018'
+--
+---- The Date will changes till the next financial Year.
+--EXEC Web.SpUpdate_JobReceiveLineStatusWithDate '01/Apr/2016','01/Apr/2019'
+--EXEC Web.SpUpdate_JobOrderHeaderStatus
+---- Date Changes as per current Month for which Ledger is posted in May we will run for April So Date will be 30/Apr/2018
+--EXEC Web.sp_WeavingSmallChunk_LedgerPostOnSingleClick 17,1,'31/Mar/2019','system' -- Date Change from '30/Apr/2018' To '30/Jun/2018'
+---- The Second Date will change from '31/Mar/2018' To '31/Mar/2019' for Next fiancial Year.
+--EXEC web.SpUpdate_JobOrderLineStatusWithDate '01/Apr/2016','31/Mar/2019'
+--EXEC Web.SpUpdate_JobOrderHeaderStatus_ForFinishing
+---- Date Changes as per current Month for which Ledger is posted in May we will run for April So Date will be 30/Apr/2018
+--EXEC Web.sp_FinishingTimeIncentive_LedgerPostOnSingleClick 17,1,'31/Mar/2019','System',6 -- Date Change from '30/Apr/2018' To '30/Jun/2018'
+--
+--SELECT 'Sucess' AS Result
+--
+--end
+--GO
+--
+
+
+
+
+
+--UPDATE Web.LedgerLines
+--SET Web.LedgerLines.ReferenceDocId = V1.NewReferenceDocId
+--FROM 
+--(
+--	SELECT L.LedgerLineId, Jj.GenJobOrderHeaderId AS NewReferenceDocId, L.ReferenceDocId, D.DocumentTypeName
+--	--C.CostCenterName, Joh.DocNo, Joh.DocDate, D.DocumentTypeName, H.DivisionId, H.SiteId, L.*
+--	FROM Web.LedgerHeaders H 
+--	LEFT JOIN Web.LedgerLines L ON H.LedgerHeaderId = L.LedgerHeaderId
+--	LEFT JOIN Web.DocumentTypes D ON H.DocTypeId = D.DocumentTypeId
+--	LEFT JOIN Web.JobOrderHeaders Joh ON L.ReferenceDocTypeId = Joh.DocTypeId AND L.ReferenceDocId = Joh.JobOrderHeaderId
+--	LEFT JOIN Web.CostCenters C ON L.CostCenterId = C.CostCenterId
+--	LEFT JOIN Web.JobOrderJobOrders JJ ON Joh.JobOrderHeaderId = Jj.JobOrderHeaderId
+--	WHERE H.DocDate >= '31/Mar/2019'
+--	AND D.DocumentTypeName IN ('Weaving Time Incentive','Weaving Time Penalty','Small Chunks Bazar Penalty')
+--	AND Joh.DocNo LIKE '%OL%'
+--	--AND H.SiteId = 17 AND H.DivisionId = 6
+--	--AND D.DocumentTypeName ='Small Chunks Bazar Penalty'
+--	--AND D.DocumentTypeName = 'Weaving Time Incentive'
+--	--AND C.CostCenterName = '18-3456'
+--) AS V1 WHERE Web.LedgerLines.LedgerLineId = V1.LedgerLineId	
+
+
+
+SELECT * FROM Web.LedgerLines WHERE LedgerLineId   = 584723
+
+
+SELECT * FROM Web.JobOrderHeaders WHERE JobOrderHeaderId = 50091855
+
+SELECT * FROM Web.JobOrderLines WHERE JobOrderHeaderId = 50091855
+
+
+
+SELECT * FROM Web.JobOrderLineStatus
+WHERE JobOrderLineId IN (51117246, 51117247)
+
+
+SELECT * FROM Web.LedgerLines WHERE LedgerHeaderId = 698671
+
+
+SELECT JOH.JobOrderHeaderId,max(JOH.DocNo) AS OrderNo,max(JOH.Duedate) AS Duedate,max(JOH.DocDate) AS DocDate,sum(isnull(JOL.DealQty,0)) AS DealQty,max(JOLS.ReceiveDate) AS Receivedate
+FROM Web.jobOrderHeaders JOH WITH (Nolock)
+LEFT JOIN web.JobOrderJobOrders JJ ON JJ.GenJobOrderHeaderId = JOH.JobOrderHeaderId 
+LEFT JOIN Web.Joborderlines JOL WITH (nolock) ON JOL.JobOrderHeaderId=JOH.JobOrderHeaderId
+LEFT JOIN web.JobOrderLineStatus JOLS WITH (Nolock) ON  JOL.JobOrderLineId=JOLS.JobOrderLineId
+WHERE JJ.JobOrderJobOrderId IS NULL 
+AND Joh.JobOrderHeaderId = 50086210
+GROUP BY JOH.JobOrderHeaderId
+
+
+SELECT JOH.JobOrderHeaderId,max(JOH.DocNo) AS OrderNo,max(JOH.Duedate) AS Duedate,max(JOH.DocDate) AS DocDate,sum(isnull(JOL.DealQty,0)) AS DealQty,max(JOLS.ReceiveDate) AS Receivedate
+FROM Web.jobOrderHeaders JOH WITH (Nolock)
+LEFT JOIN web.JobOrderJobOrders JJ ON JJ.GenJobOrderHeaderId = JOH.JobOrderHeaderId 
+LEFT JOIN Web.Joborderlines JOL WITH (nolock) ON JOL.JobOrderHeaderId=JJ.JobOrderHeaderId 
+LEFT JOIN web.JobOrderLineStatus JOLS WITH (Nolock) ON  JOL.JobOrderLineId=JOLS.JobOrderLineId
+WHERE JJ.JobOrderJobOrderId IS NOT NULL 
+AND Joh.JobOrderHeaderId = 50091855
+GROUP BY JOH.JobOrderHeaderId
+
+
+
+SELECT JJ.JobOrderHeaderId ,
+JOH.JobOrderHeaderId,JOH.DocNo AS OrderNo,JOH.Duedate AS Duedate,JOH.DocDate AS DocDate,
+isnull(JOL.DealQty,0) AS DealQty,JOLS.ReceiveDate AS Receivedate
+FROM Web.jobOrderHeaders JOH WITH (Nolock)
+LEFT JOIN web.JobOrderJobOrders JJ ON JJ.GenJobOrderHeaderId = JOH.JobOrderHeaderId 
+LEFT JOIN Web.Joborderlines JOL WITH (nolock) ON JOL.JobOrderHeaderId=JJ.JobOrderHeaderId 
+LEFT JOIN web.JobOrderLineStatus JOLS WITH (Nolock) ON  JOL.JobOrderLineId=JOLS.JobOrderLineId
+WHERE JJ.JobOrderJobOrderId IS NOT NULL 
+AND Joh.JobOrderHeaderId = 50091855
+
+
+
+
+--
+--UPDATE Web.JobOrderHeaders
+--SET Web.JobOrderHeaders.JobOrderHeaderId = V1.New_DueDate
+--FROM 
+--(
+SELECT H.JobOrderHeaderId,H.DueDate Old_DueDate,H.DueDate+7 AS New_DueDate
+ FROM Web.JobOrderHeaders H WITH (Nolock)
+WHERE 1=1 AND H.DueDate BETWEEN '27/Mar/2019' AND '30/Mar/2019'
+AND H.DocTypeId IN (455, 458, 637, 638)
+AND H.DocDate > '31/Mar/2019'
+ORDER BY H.DocDate ASC
+--) AS V1 WHERE Web.JobOrderHeaders.JobOrderHeaderId = V1.JobOrderHeaderId	
+
+
+SELECT * FROM Web.costcenters WHERE CostCenterName IN ('18-0492','18-0499') AND SiteId=19
+
+
+SELECT * FROM Web.Sites WHERE SiteCode LIKE '%chak%'
+536701
+
+
+SELECT * FROM Web.JobOrderHeaders WHERE CostCenterId IN (536701, 536865)
+
+
+
+SELECT * FROM web.JobOrderHeaderStatus WHERE JobOrderHeaderId IN (50081659,50083644)
+
+
+SELECT * FROM Web.LedgerHeaders WHERE LedgerHeaderId=698672
+SELECT * FROM Web.LedgerLines WHERE LedgerHeaderId=698672 AND CostCenterId IN (536701, 536865)
+SELECT * FROM Web.Ledgers WHERE LedgerHeaderId=698672 AND LedgerAccountId=6671 AND ContraLedgerAccountId IN (7461,7609) AND LedgerLineId IN (584759,584854)
+
+SELECT * FROM Web.Ledgers WHERE LedgerHeaderId=698672 AND CostCenterId IN (536701, 536865)
+
+
+SELECT * FROM Web.LedgerLines WHERE ReferenceDocId=50081659
+
+
+
+
+
+SELECT JJ.GenJobOrderHeaderId AS JobOrderHeaderId, OJ.SiteId, OJ.DivisionId,OJ.CostCenterId,  OJ.DocTypeId, OJ.DocDate, OJ.DocNo, JW.PersonID,  JW.Name AS JobWorkerName, OJ.DueDate,
+JOP.Worth AS TimeIncentiveRate
+FROM web.JobOrderHeaders H WITH (Nolock) 
+LEFT JOIN web.JobOrderHeaderStatus HS WITH (Nolock) ON HS.JobOrderHeaderId = H.JobOrderHeaderId 
+LEFT JOIN web.JobOrderJobOrders JJ WITH (Nolock) ON JJ.JobOrderHeaderId = H.JobOrderHeaderId 
+LEFT JOIN web.JobOrderHeaders OJ ON JJ.GenJobOrderHeaderId = OJ.JobOrderHeaderId 
+LEFT JOIN web.JobOrderPerks JOP WITH (Nolock) ON OJ.JobOrderHeaderId = JOP.JobOrderHeaderId AND JOP.PerkId = 1
+LEFT JOIN web.People JW WITH (Nolock) ON JW.PersonID = OJ.JobWorkerId
+LEFT JOIN Web.DocumentTypes D ON H.DocTypeId = D.DocumentTypeId
+WHERE  isnull(JOP.Worth,0) > 0 AND isnull(JW.IsSisterConcern,0) = 0 AND isnull(JW.Nature,'') <> 'Employee'
+AND HS.ReceiveDate <=H.DueDate  AND isnull(HS.CancelDate,H.DueDate )  <=H.DueDate 
+AND D.DocumentCategoryId = 343 AND H.DivisionId
+AND isnull(HS.IsTimeIncentiveProcessed,0) =0 AND HS.Status =7
+AND OJ.JobOrderHeaderId IS NOT NULL 
+AND HS.ReceiveDate <='31/Mar/19'
+
+---------

@@ -1,0 +1,56 @@
+
+
+UPDATE Web.LedgerLines
+SET Web.LedgerLines.CostCenterId = V1.CostCenterId_Old
+FROM (
+	SELECT L.LedgerLineId, Oc.CostCenterId AS CostCenterId_Old, Oc.CostCenterName
+	--Oc.CostCenterName AS OldCOstcenterName, Oc.CostCenterId AS OldCostCenterId,   
+	--D.DocumentTypeName, C.CostCenterName, L.*
+	FROM Web.LedgerHeaders H 
+	LEFT JOIN Web.DocumentTypes D ON H.DocTypeId = D.DocumentTypeId
+	LEFT JOIN Web.LedgerLines L ON H.LedgerHeaderId = L.LedgerHeaderId
+	LEFT JOIN Web.CostCenters C ON L.CostCenterId = C.CostCenterId
+	LEFT JOIN Web.JobOrderHeaders Joh ON C.CostCenterId = Joh.CostCenterId
+	LEFT JOIN Web.JobOrderJobOrders Jj ON Joh.JobOrderHeaderId = Jj.JobOrderHeaderId
+	LEFT JOIN Web.JobOrderHeaders J ON Jj.GenJobOrderHeaderId = J.JobOrderHeaderId
+	LEFT JOIN Web.CostCenters Oc ON J.CostCenterId = Oc.CostCenterId
+	WHERE H.DocDate = '31/Mar/2019'
+	AND L.CostCenterId IS NOT NULL
+	AND C.CostCenterName LIKE '%OL%'
+) AS V1 WHERE Web.LedgerLines.LedgerLineId = V1.LedgerLineId
+
+
+SELECT D.DocumentTypeName, C.CostCenterName, L.*
+FROM Web.LedgerHeaders H 
+LEFT JOIN Web.DocumentTypes D ON H.DocTypeId = D.DocumentTypeId
+LEFT JOIN Web.Ledgers L ON H.LedgerHeaderId = L.LedgerHeaderId
+LEFT JOIN Web.CostCenters C ON L.CostCenterId = C.CostCenterId
+WHERE H.DocDate = '31/Mar/2019'
+AND L.CostCenterId IS NOT NULL
+AND C.CostCenterName LIKE '%OL%'
+
+
+
+
+
+
+
+
+UPDATE Web.Ledgers
+SET Web.Ledgers.CostCenterId = V1.CostCenterId_Old
+FROM (
+	SELECT L.ledgerId, Oc.CostCenterId AS CostCenterId_Old, Oc.CostCenterName
+	--Oc.CostCenterName AS OldCOstcenterName, Oc.CostCenterId AS OldCostCenterId,   
+	--D.DocumentTypeName, C.CostCenterName, L.*
+	FROM Web.LedgerHeaders H 
+	LEFT JOIN Web.DocumentTypes D ON H.DocTypeId = D.DocumentTypeId
+	LEFT JOIN Web.Ledgers L ON H.LedgerHeaderId = L.LedgerHeaderId
+	LEFT JOIN Web.CostCenters C ON L.CostCenterId = C.CostCenterId
+	LEFT JOIN Web.JobOrderHeaders Joh ON C.CostCenterId = Joh.CostCenterId
+	LEFT JOIN Web.JobOrderJobOrders Jj ON Joh.JobOrderHeaderId = Jj.JobOrderHeaderId
+	LEFT JOIN Web.JobOrderHeaders J ON Jj.GenJobOrderHeaderId = J.JobOrderHeaderId
+	LEFT JOIN Web.CostCenters Oc ON J.CostCenterId = Oc.CostCenterId
+	WHERE H.DocDate = '31/Mar/2019'
+	AND L.CostCenterId IS NOT NULL
+	AND C.CostCenterName LIKE '%OL%'
+) AS V1 WHERE Web.Ledgers.LedgerId = V1.LedgerId
